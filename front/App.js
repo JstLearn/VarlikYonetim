@@ -12,6 +12,7 @@ import { postData, fetchData } from './services/api';
 import AlertModal from './components/Modal/AlertModal';
 import LoginModal from './components/LoginModal';
 import { UserProvider, useUser } from './context/UserContext';
+import Logo from './components/Logo';
 
 const AppContent = () => {
   // State tanımlamaları
@@ -321,7 +322,7 @@ const AppContent = () => {
   };
 
   const resetAllStates = () => {
-    setIsMainButtonsSmall(false);
+    setIsMainButtonsSmall(false);  // Ana butonları büyük göster
     setShowDataButtons(false);
     setShowQueryButtons(false);
     setShowForm(false);
@@ -332,6 +333,8 @@ const AppContent = () => {
     setErrors({});
     setTableTitle('');
     setTableData([]);
+    setCurrentAction('');  // Mevcut aksiyonu sıfırla
+    setLoginModalVisible(false);  // Login modalını kapat
   };
 
   const handleModalSuccess = () => {
@@ -345,8 +348,29 @@ const AppContent = () => {
     setCurrentAction('');
   };
 
+  const handleLogoClick = () => {
+    // Tüm state'leri başlangıç durumuna getir
+    setIsMainButtonsSmall(false);
+    setShowDataButtons(false);
+    setShowQueryButtons(false);
+    setShowForm(false);
+    setShowTable(false);
+    setCurrentEndpoint('');
+    setFormFields([]);
+    setFormData({});
+    setErrors({});
+    setTableTitle('');
+    setTableData([]);
+    setCurrentAction('');
+    setLoginModalVisible(false);
+    
+    // Sayfayı en üste kaydır
+    window.scrollTo(0, 0);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
+      <Logo onReset={handleLogoClick} />
       <UserInfo onLogout={resetAllStates} />
       <ScrollView 
         contentContainerStyle={styles.scrollViewContent}

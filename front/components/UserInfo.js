@@ -1,9 +1,28 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useUser } from '../context/UserContext';
 
 const UserInfo = ({ onLogout }) => {
     const { user, logout } = useUser();
+    const [isVisible, setIsVisible] = useState(true);
+    const [lastScrollY, setLastScrollY] = useState(0);
+
+    useEffect(() => {
+        const handleScroll = () => {
+            const currentScrollY = window.scrollY;
+            
+            if (currentScrollY < lastScrollY || currentScrollY < 100) {
+                setIsVisible(true);
+            } else if (currentScrollY > lastScrollY && currentScrollY > 100) {
+                setIsVisible(false);
+            }
+            
+            setLastScrollY(currentScrollY);
+        };
+
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [lastScrollY]);
 
     if (!user) return null;
 
@@ -13,8 +32,15 @@ const UserInfo = ({ onLogout }) => {
     };
 
     return (
-        <View style={styles.container}>
-            <Text style={styles.username}>Hoş geldiniz, {user.username}</Text>
+        <View style={[
+            styles.container,
+            {
+                transform: `translateY(${isVisible ? '0' : '-100px'})`,
+                opacity: isVisible ? 1 : 0,
+                transition: 'all 0.3s ease',
+            }
+        ]}>
+            <Text style={styles.username}>{user.username}</Text>
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
                 <Text style={styles.logoutText}>Çıkış Yap</Text>
             </TouchableOpacity>
@@ -28,7 +54,7 @@ const styles = StyleSheet.create({
         padding: 8,
         paddingHorizontal: 16,
         borderRadius: 20,
-        position: 'absolute',
+        position: 'fixed',
         top: 10,
         right: 10,
         borderWidth: 1,
@@ -37,6 +63,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
+        pointerEvents: 'auto'
     },
     username: {
         color: '#fff',

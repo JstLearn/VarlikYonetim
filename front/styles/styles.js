@@ -66,17 +66,23 @@ const styles = StyleSheet.create({
     gap: '2vw',
     padding: '16px',
     transition: 'all 0.3s ease',
-    height: '40vh',
+    minHeight: '200px',
+    height: 'auto',
+    maxHeight: '40vh',
+    flexWrap: 'wrap'
   },
   mainButtonsContainerSmall: {
-    height: '80px',
+    minHeight: '80px',
+    height: 'auto',
     marginTop: '1vh',
     marginBottom: '1vh',
   },
   mainButton: {
     width: '45%',
     maxWidth: calcSize(400),
-    height: '35vh',
+    minHeight: '180px',
+    height: 'auto',
+    maxHeight: '35vh',
     backgroundColor: '#007bff',
     borderRadius: calcSize(25),
     justifyContent: 'center',
@@ -85,6 +91,11 @@ const styles = StyleSheet.create({
     cursor: 'pointer',
     boxShadow: `0 ${calcSize(10)} ${calcSize(20)} rgba(0,123,255,0.2)`,
     border: '1px solid rgba(255,255,255,0.1)',
+    padding: '20px',
+    '@media (max-width: 768px)': {
+      width: '90%',
+      minHeight: '120px',
+    },
     '&:hover': {
       transform: 'translateY(-5px)',
       boxShadow: `0 ${calcSize(15)} ${calcSize(30)} rgba(0,123,255,0.3)`,
@@ -95,7 +106,11 @@ const styles = StyleSheet.create({
     width: '20%',
     maxWidth: calcSize(200),
     height: calcSize(50),
+    minHeight: 'auto',
     boxShadow: `0 ${calcSize(4)} ${calcSize(8)} rgba(0,123,255,0.2)`,
+    '@media (max-width: 768px)': {
+      width: '45%',
+    },
   },
   mainButtonText: {
     ...textStyles.primary,
