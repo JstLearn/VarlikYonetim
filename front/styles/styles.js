@@ -34,6 +34,18 @@ const styles = StyleSheet.create({
     overflowY: 'auto',
     zIndex: 1,
     margin: calcSize(16),
+    scrollBehavior: 'smooth',
+    scrollSnapType: 'y mandatory',
+    '&::-webkit-scrollbar': {
+      width: '8px',
+    },
+    '&::-webkit-scrollbar-track': {
+      background: 'rgba(255, 255, 255, 0.1)',
+    },
+    '&::-webkit-scrollbar-thumb': {
+      background: 'rgba(255, 255, 255, 0.2)',
+      borderRadius: '4px',
+    },
   },
   scrollViewContent: {
     flex: 1,
@@ -43,6 +55,10 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     margin: 0,
     maxWidth: '1800px',
+    scrollSnapAlign: 'start',
+    '@media (max-width: 768px)': {
+      scrollSnapStop: 'always',
+    },
   },
   heroTitle: {
     ...textStyles.primary,
@@ -94,7 +110,10 @@ const styles = StyleSheet.create({
     padding: '20px',
     '@media (max-width: 768px)': {
       width: '90%',
-      minHeight: '120px',
+      minHeight: '80px',
+      height: '80px',
+      maxHeight: '80px',
+      padding: '10px 20px',
     },
     '&:hover': {
       transform: 'translateY(-5px)',
@@ -117,6 +136,10 @@ const styles = StyleSheet.create({
     fontSize: calcFontSize(36),
     fontWeight: '600',
     transition: 'all 0.3s ease',
+    whiteSpace: 'nowrap',
+    '@media (max-width: 768px)': {
+      fontSize: calcFontSize(18),
+    },
   },
   mainButtonTextSmall: {
     fontSize: calcFontSize(16),
@@ -167,11 +190,19 @@ const styles = StyleSheet.create({
     boxShadow: `0 ${calcSize(4)} ${calcSize(8)} rgba(0,0,0,0.2)`,
     border: '1px solid rgba(255,255,255,0.1)',
     margin: calcSize(8),
+    '@media (max-width: 768px)': {
+      height: calcSize(80),
+      padding: calcSize(8),
+    },
   },
   subButtonText: {
     ...textStyles.primary,
     fontSize: calcFontSize(24),
     fontWeight: '500',
+    whiteSpace: 'nowrap',
+    '@media (max-width: 768px)': {
+      fontSize: calcFontSize(18),
+    },
   },
   formContainer: {
     padding: '16px',
@@ -280,6 +311,22 @@ const styles = StyleSheet.create({
     paddingBottom: '0px',
     position: 'relative',
     zIndex: 1,
+    transition: 'transform 0.3s ease',
+    '@media (max-width: 768px)': {
+      scrollSnapAlign: 'start',
+      scrollSnapStop: 'always',
+    },
+  },
+  headerContainer: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
+    backgroundColor: '#1a1f25',
+    transition: 'transform 0.3s ease',
+    transform: 'translateY(0)',
+    '&.hidden': {
+      transform: 'translateY(-100%)',
+    },
   },
   tableHeader: {
     display: 'flex',

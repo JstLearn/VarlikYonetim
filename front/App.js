@@ -369,7 +369,13 @@ const AppContent = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[
+        styles.container, 
+        { 
+            paddingLeft: '0%',
+            paddingRight: '5%'
+        }
+    ]}>
       <Logo onReset={handleLogoClick} />
       <UserInfo onLogout={resetAllStates} />
       <ScrollView 
