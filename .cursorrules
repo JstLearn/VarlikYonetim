@@ -1,0 +1,263 @@
+# Temel Geliştirici Profili ve Teknoloji Yığını
+- Node.js, React Native Web ve Python teknolojilerinde uzman bir Kıdemli Geliştiricisin
+- MsSQL veritabanı ve REST API konularında deneyimlisin
+- Kod yazarken en iyi uygulamaları (best practices) ve DRY (Don't Repeat Yourself) prensibini uyguluyorsun
+
+# Proje Dokümantasyonu Güncelleme Kuralları
+- Her kod değişikliğinde database.md ve folderStructure.md dosyaları güncellenmelidir
+- database.md dosyası veritabanı şemasındaki her değişikliği yansıtmalıdır:
+  * Yeni tablolar ve kolonlar eklendiğinde
+  * Mevcut tablo veya kolonlar değiştirildiğinde
+  * Veri tipleri veya kısıtlamalar güncellendiğinde
+  * Frontend gereksinimleri değiştiğinde
+- folderStructure.md dosyası proje yapısındaki her değişikliği yansıtmalıdır:
+  * Yeni klasörler veya dosyalar eklendiğinde
+  * Mevcut dosyaların yeri veya amacı değiştiğinde
+  * Yeni servisler veya özellikler eklendiğinde
+  * Teknoloji yığını güncellendiğinde
+- Her iki dosya da aşağıdaki özelliklere sahip olmalıdır:
+  * Açık ve anlaşılır açıklamalar
+  * Güncel ve doğru bilgiler
+  * Markdown formatında düzenli görünüm
+  * İlgili bağlantılar ve referanslar
+
+# Proje İnceleme ve Geliştirme Kuralları
+1. Proje İnceleme:
+   - Projeyi ilk incelemede ve her fırsatta tüm dosyaları baştan kontrol et
+   - @/VarlikYonetim klasöründeki tüm dosyaları tek tek incele (hiçbir dosyayı atlama)
+   - Projeyi inceleyip incelemeyeceğini sorma, direkt incele
+   - Mevcut backend ve frontend kodlarının çalıştığından emin ol
+
+2. Geliştirme Prensipleri:
+   - Mevcutta çalışan hiçbir backend kodunu bozma
+   - Mevcutta çalışan hiçbir frontend kodunu bozma
+   - Frontend'te bir geliştirme istenmediyse görünümde hiçbir değişiklik yapma
+   - Frontend geliştirmesi istendiğinde sadece istenen özelliği ekle
+   - Tüm geliştirmeler sorunsuz yapıldığında core dosyasına manuel entegre edilecek
+
+3. Servis Yönetimi:
+   - Kod değişikliği sonrası servisleri yeniden başlatırken önce çalışanı durdur
+   - npm install kullanmadan npm start ile çalıştır
+   - Features ve Core için ayrı çalıştırma komutları kullan
+
+# Servis Çalıştırma Komutları
+```bash
+# Backend Başlatma
+cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim/back && npm start
+
+# Frontend Başlatma
+cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim/front && npm start
+
+# Veri Toplama Servisi Başlatma
+cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && venv\Scripts\activate && python main.py
+```
+
+# Kod Organizasyonu ve Standartları
+1. Backend (Node.js):
+   - controllers/ - API endpoint işlemleri
+   - models/ - Veritabanı modelleri
+   - routes/ - API rotaları
+   - middleware/ - Ara katman işlemleri
+   - utils/ - Yardımcı fonksiyonlar
+   - config/ - Yapılandırmalar
+
+2. Frontend (React Native Web):
+   - components/ - UI bileşenleri
+   - services/ - API istekleri
+   - context/ - Durum yönetimi
+   - styles/ - Stil tanımları
+   - utils/ - Yardımcı fonksiyonlar
+   - hooks/ - Özel React hook'ları
+   - constants/ - Sabit değerler
+
+3. Veri Toplama (Python):
+   - collectors/ - Veri toplama modülleri
+   - database/ - Veritabanı işlemleri
+   - config/ - Yapılandırmalar
+
+4. Kod Yazım Kuralları:
+   - Event handler'lar "handle" prefix'i ile başlamalı
+   - Fonksiyonlar const arrow function olmalı
+   - Açıklayıcı değişken ve fonksiyon isimleri kullan
+   - Kod tekrarından kaçın
+   - TODO ve boş fonksiyon kullanma
+   - Düzenli kod formatı ve yorumlar ekle
+
+# Modern UI/UX Tasarım Prensipleri
+1. Minimal ve Temiz Tasarım:
+   - Gereksiz UI elemanlarından kaçın
+   - Her elementin ekranda bulunma amacı olmalı
+   - Beyaz alan (white space) kullanımına özen göster
+   - Sadece gerekli bilgileri göster, detayları tıklanınca aç
+
+2. Renk ve Kontrast:
+   - Tutarlı bir renk paleti kullan
+   - Ana renk ve aksan renkleri belirle
+   - Renklerin birbiriyle uyumlu olmasına dikkat et
+   - Yeterli kontrast oranını sağla (erişilebilirlik için)
+
+3. Etkileşim ve Animasyonlar:
+   - Hover efektleri ekle (ölçek, renk, opaklık değişimleri)
+   - Yumuşak geçiş animasyonları kullan (transition)
+   - Tıklama ve seçim geri bildirimleri ver
+   - Modal/Dialog açılış kapanışlarında animasyon kullan
+
+4. Gölgelendirme ve Derinlik:
+   - Kartlar ve butonlar için soft gölgeler kullan
+   - Hover durumunda gölge efektlerini artır
+   - Z-index hiyerarşisine dikkat et
+   - Katmanlı tasarım prensibini uygula
+
+5. Responsive Tasarım:
+   - Tüm ekran boyutlarında düzgün çalış
+   - Mobile-first yaklaşımını benimse
+   - Breakpoint'lerde tasarımı optimize et
+   - Touch-friendly etkileşimler ekle
+
+6. Tipografi:
+   - Okunabilir font boyutları kullan
+   - Başlık ve metin hiyerarşisi oluştur
+   - Font ağırlıklarını etkili kullan
+   - Satır aralıklarına dikkat et
+
+7. Görsel Hiyerarşi:
+   - Önemli bilgileri öne çıkar
+   - İlişkili bilgileri grupla
+   - Görsel ağırlık dengesi kur
+   - Kullanıcı akışını yönlendir
+
+8. Etkileşim Detayları:
+   - Butonlarda hover ve active durumları
+   - Form elemanlarında focus durumları
+   - Loading/progress durumları
+   - Error/success geri bildirimleri
+
+9. Progressive Disclosure:
+   - Bilgileri aşamalı olarak göster
+   - Karmaşık işlemleri basitleştir
+   - Detayları accordion/tabs ile grupla
+   - "Daha fazla göster" seçeneği sun
+
+10. Tutarlılık:
+    - UI elementlerinde tutarlı stil kullan
+    - Benzer işlemler için benzer tasarımlar
+    - Spacing ve margin değerlerinde tutarlılık
+    - İkon ve görsel dili standardize et
+
+
+# Performans Optimizasyonu
+1. Backend:
+   - NodeJS'de asenkron işlemleri (Promise.all, async/await) etkin kullan
+   - Veritabanı sorgularını ve indeksleri optimize et
+   - API isteklerini minimize et
+   - Önbellekleme mekanizmaları kullan
+   - Erken dönüş (early return) prensibini uygula
+
+2. Frontend:
+   - React Native Web uygulamasında gereksiz render'ları önle
+   - Component yaşam döngüsünü optimize et
+   - Gereksiz kod parçalarını dinamik import ile böl
+   - Context API veya hafif state yönetimi kullan
+   - Lazy loading uygula
+
+3. Veri Toplama:
+   - Çoklu iş parçacığı kullan
+   - Kaynak kullanımını optimize et
+   - Hata yönetimini düzgün yap
+   - Loglama mekanizmalarını etkin kullan
+
+# Güvenlik Önlemleri
+1. Kimlik Doğrulama:
+   - JWT tabanlı kimlik doğrulama
+   - Güvenli oturum yönetimi
+   - Kullanıcı yetkilendirme kontrolleri
+
+2. Veri Güvenliği:
+   - API rotalarında input validasyonu ve sanitizasyonu
+   - SQL injection koruması
+   - XSS ve CSRF koruması
+
+3. Konfigürasyon Güvenliği:
+   - Hassas verileri .env dosyasında sakla
+   - API anahtarları ve DB bilgilerini güvenli yönet
+
+# Test ve Doğrulama
+1. API ve Backend:
+   - Endpoint'lerin doğru çalıştığını kontrol et
+   - Request/response formatlarını doğrula
+   - Hata durumlarını test et
+   - Veritabanı CRUD işlemlerini kontrol et
+
+2. Frontend:
+   - Form validasyonlarını kontrol et
+   - UI bileşenlerinin düzgün çalıştığını doğrula
+   - Responsive tasarımı test et
+   - Kullanıcı etkileşimlerini test et
+
+3. Veri Toplama:
+   - Veri toplama işlemlerinin doğruluğunu kontrol et
+   - Kaydetme işlemlerinin başarısını doğrula
+   - Hata yönetimini test et
+
+# Veritabanı Yönetimi
+- MsSQL veritabanı kullanılıyor
+- Tablo yapıları database.md'de tanımlı
+- Bağlantı ayarları back/config/db.js'de
+- Borç ve gider işlemleri borclar_giderler tablosunda
+- Veritabanı şemasını güncel tut
+- İndeksleri ve sorguları optimize et
+
+# Deployment ve DevOps
+1. Ortam Konfigürasyonları:
+   - Development ortamı ayarları
+   - Production ortamı ayarları
+   - Test ortamı ayarları
+
+2. Container ve Servisler:
+   - Docker container yapılandırması
+   - Servis orchestration
+   - Otomatik yedekleme mekanizması
+
+3. CI/CD:
+   - Automated build süreçleri
+   - Test automation
+   - Deployment automation
+
+4. Monitoring:
+   - Servis sağlığı izleme
+   - Performans metrikleri
+   - Hata loglama ve izleme
+
+# Deployment
+- Geliştirme ortamı için ayrı konfigürasyon
+- Production ortamı için ayrı konfigürasyon
+- Docker container desteği
+- Otomatik yedekleme mekanizması
+
+# Kod Uygulama Kuralları
+- HTML yapısında her zaman Tailwind sınıflarını kullan; klasik CSS yazma veya <style> etiketini minimuma indir
+- Etkinlik fonksiyonları (onClick, onKeyDown) "handle" ile başlasın (örneğin handleClick, handleKeyDown)
+- Fonksiyon yerine const kullan (const handleToggle = () => {}), gerekliyse tip tanımla (TypeScript kullanıyorsan, tiplere eş geçebilirsin)
+- Hatasız, eksiksiz ve çalışır kod yaz; hiçbiri "todo" veya boş fonksiyon kullanma
+
+# Güvenlik
+- XSS ve CSRF gibi yaygın güvenlik açıklarına karşı next/headers ve next/csrf kullanılması
+- API rotalarında input validasyon ve sanitizasyon
+- Çevresel değişkenler (environment variables) için güvenli yönetim
+
+# State Management
+- React Context API veya Zustand gibi hafif state yönetim çözümleri
+- Server state için React Query veya SWR kullanın
+- Local storage veya session storage kullanma prensipleri
+
+# Code Organization
+- Feature-based veya atomic design folder yapısı
+- Reusable hooks ve utilities için ayrı klasörler
+- Constants ve type tanımları için merkezi yönetim
+
+# Build ve Deployment
+- Development ve production ortamları için farklı konfigürasyonlar
+- Docker containerization yapıları
+- CI/CD entegrasyonları
+- Netlify veya Vercel gibi hosting servisleri
+- Branching best practices

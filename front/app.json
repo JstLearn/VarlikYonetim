@@ -13,16 +13,22 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.varlikyonetimi.nt" 
     },
     "android": {
+      "package": "com.varlikyonetimi.nt",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "webpack" 
+    },
+    "extra": {
+      "apiBaseUrl": "http://<192.168.1.110>:3000" 
     }
   }
 }
