@@ -2,59 +2,178 @@
 Farklı veri kaynaklarından veri toplama işlemleri
 """
 
-import yfinance as yf # type: ignore
-from datetime import datetime, timezone
-from config import CURRENCY_PAIRS
+import yfinance as yf
+from datetime import datetime, timezone, timedelta
+import pandas as pd
+import time
+import logging
+from database import Database
+from config import CURRENCY_PAIRS, COLLECTION_CONFIG
 
-def collect_currency_data(pair_info):
-    """Döviz ve kripto para verilerini toplar"""
-    try:
-        ticker = yf.Ticker(pair_info['symbol'])
-        hist = ticker.history(period='1d', interval=pair_info['interval'])
+class DataCollector:
+    def __init__(self):
+        self.db = Database()
+        self.baslangic_tarihi = datetime(2025, 1, 1, 0, 0, 0)  # UTC+0
+        self.para_birimleri = CURRENCY_PAIRS
         
-        if not hist.empty:
-            # Yahoo Finance'den gelen son fiyat
-            last_price = float(hist['Close'].iloc[-1])
+    def get_candles(self, para_birimi, baslangic, bitis=None):
+        try:
+            # Para birimi formatını yfinance formatına çevir
+            yf_symbol = para_birimi.replace('/', '') + '=X'
+            logging.info(f"yfinance'den veri çekiliyor: {yf_symbol}")
             
-            # USD karşılığını hesapla
-            if pair_info['symbol'].endswith('USD') or pair_info['symbol'] == 'EURUSD=X' or pair_info['symbol'] == 'GBPUSD=X':
-                usd_value = last_price
-            else:
-                # TRY pariteler için USD karşılığını hesapla
-                usd_try = yf.Ticker('USDTRY=X').history(period='1d')['Close'].iloc[-1]
-                usd_value = last_price / usd_try
+            # Ticker oluştur
+            ticker = yf.Ticker(yf_symbol)
             
-            # UTC+0 tarihini al
-            utc_now = datetime.now(timezone.utc)
-            
-            data = (
-                pair_info['parite'],
-                pair_info['interval'],
-                pair_info['tip'],
-                pair_info['ulke'],
-                last_price,  # Orijinal fiyat
-                usd_value,   # USD karşılığı
-                utc_now     # UTC+0 tarih
+            # Veriyi çek (1 dakikalık)
+            df = ticker.history(
+                start=baslangic,
+                end=bitis if bitis else datetime.utcnow(),
+                interval='1m'
             )
-            return data
-        return None
+            
+            if df.empty:
+                logging.warning(f"Veri bulunamadı: {para_birimi}")
+                return pd.DataFrame()
+            
+            # DataFrame'i düzenle
+            df = df.reset_index()
+            df = df.rename(columns={
+                'Datetime': 'timestamp',
+                'Open': 'open',
+                'High': 'high',
+                'Low': 'low',
+                'Close': 'close',
+                'Volume': 'volume'
+            })
+            
+            # Hacim verisi yoksa 0 olarak ayarla
+            if 'volume' not in df.columns:
+                df['volume'] = 0
+                
+            # Timestamp'i UTC'ye çevir
+            df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
+            
+            logging.info(f"{len(df)} adet veri çekildi: {para_birimi}")
+            return df
+            
+        except Exception as e:
+            logging.error(f"Veri çekme hatası ({para_birimi}): {str(e)}")
+            return pd.DataFrame()
+
+    def collect_missing_data(self, para_birimi):
+        # Son kaydedilen mumu kontrol et
+        son_mum = self.db.get_last_candle(para_birimi)
+        baslangic = self.baslangic_tarihi
+        
+        if son_mum:
+            baslangic = son_mum + timedelta(minutes=1)
+        
+        simdi = datetime.utcnow()
+        
+        while baslangic < simdi:
+            bitis = min(baslangic + timedelta(days=7), simdi)  # yfinance için 7 günlük veri limiti
+            
+            logging.info(f"Veri çekiliyor: {para_birimi} - {baslangic} -> {bitis}")
+            
+            veriler = self.get_candles(para_birimi, baslangic, bitis)
+            if not veriler.empty:
+                self.db.save_candles(para_birimi, veriler)
+                self.db.log_operation(
+                    para_birimi, 
+                    baslangic, 
+                    bitis, 
+                    "Başarılı", 
+                    f"{len(veriler)} adet veri kaydedildi"
+                )
+            
+            baslangic = bitis + timedelta(minutes=1)
+            time.sleep(1)  # Rate limit için bekle
+
+    def run_continuous(self):
+        while True:
+            for para_birimi in self.para_birimleri:
+                try:
+                    self.collect_missing_data(para_birimi)
+                except Exception as e:
+                    logging.error(f"Hata oluştu ({para_birimi}): {str(e)}")
+                    self.db.log_operation(
+                        para_birimi,
+                        datetime.utcnow(),
+                        datetime.utcnow(),
+                        "Hata",
+                        str(e)
+                    )
+            
+            # 1 dakika bekle
+            time.sleep(60) 
+
+def collect_currency_data(parite):
+    """
+    yfinance'den kur verilerini çeker
+    
+    Args:
+        parite (str): Para birimi çifti (örn: EUR/USD)
+    """
+    try:
+        # yfinance formatına çevir (EUR/USD -> EURUSD=X)
+        symbol = f"{parite.replace('/', '')}=X"
+        logging.info(f"yfinance'den veri çekiliyor: {symbol}")
+        
+        # yfinance'den veriyi çek
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="1d")  # Son 1 günlük veri
+        
+        if not df.empty:
+            # Kolon isimlerini düzenle
+            df = df.rename(columns={
+                'Open': 'open',
+                'High': 'high',
+                'Low': 'low',
+                'Close': 'close',
+                'Volume': 'volume'
+            })
+            
+            # Hacim verisi yoksa 0 olarak ayarla
+            if 'volume' not in df.columns:
+                df['volume'] = 0
+                
+            logging.info(f"{len(df)} adet veri çekildi: {parite}")
+            return df
+        else:
+            logging.warning(f"Veri bulunamadı: {parite}")
+            return None
+            
     except Exception as e:
-        print(f"Veri alınırken hata oluştu ({pair_info['parite']}): {str(e)}")
+        logging.error(f"Veri çekme hatası ({parite}): {str(e)}")
         return None
 
-def collect_all_data():
-    """Tüm veri kaynaklarından veri toplar"""
-    all_data = []
+def collect_all_data(db):
+    """
+    Tüm para birimleri için verileri toplar ve veritabanına kaydeder
     
-    for pair_name, pair_info in CURRENCY_PAIRS.items():
-        # pair_info sözlüğüne parite adını ve interval bilgisini ekle
-        pair_info['parite'] = pair_name
-        pair_info['interval'] = '1h'  # Saatlik veri
-        pair_info['tip'] = pair_info['type']  # type -> tip
-        pair_info['ulke'] = pair_info['country']  # country -> ulke
-        
-        data = collect_currency_data(pair_info)
-        if data:
-            all_data.append(data)
-    
-    return all_data 
+    Args:
+        db (Database): Veritabanı bağlantı nesnesi
+    """
+    for parite in CURRENCY_PAIRS:
+        try:
+            # Son veriyi kontrol et
+            last_date = db.get_last_candle(parite)
+            if last_date:
+                start_date = last_date
+            else:
+                start_date = datetime.strptime(COLLECTION_CONFIG["start_date"], "%Y-%m-%d %H:%M:%S")
+            
+            end_date = datetime.now()
+            
+            logging.info(f"Veri çekiliyor: {parite} - {start_date} -> {end_date}")
+            
+            # Verileri çek
+            df = collect_currency_data(parite)
+            if df is not None:
+                # Veritabanına kaydet
+                db.save_candles(parite, df)
+                
+        except Exception as e:
+            logging.error(f"Hata oluştu ({parite}): {str(e)}")
+            continue 

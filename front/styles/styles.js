@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
   mainButton: {
     width: '45%',
     maxWidth: calcSize(400),
-    minHeight: '180px',
+    minHeight: '150px',
     height: 'auto',
     maxHeight: '35vh',
     backgroundColor: '#007bff',
@@ -110,9 +110,9 @@ const styles = StyleSheet.create({
     padding: '20px',
     '@media (max-width: 768px)': {
       width: '90%',
-      minHeight: '80px',
-      height: '80px',
-      maxHeight: '80px',
+      minHeight: '40px',
+      height: '40px',
+      maxHeight: '40px',
       padding: '10px 20px',
     },
     '&:hover': {
@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     },
   },
   mainButtonSmall: {
-    width: '20%',
+    width: '40%',
     maxWidth: calcSize(200),
     height: calcSize(50),
     minHeight: 'auto',
