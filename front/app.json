@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "VARLIK_YONETIMI_NT",
-    "slug": "VARLIK_YONETIMI_NT",
+    "name": "VarlikYonetim",
+    "slug": "varlik-yonetim",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,10 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.varlikyonetimi.nt" 
+      "bundleIdentifier": "com.varlikyonetim.app" 
     },
     "android": {
-      "package": "com.varlikyonetimi.nt",
+      "package": "com.varlikyonetim.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -28,7 +28,7 @@
       "bundler": "webpack" 
     },
     "extra": {
-      "apiBaseUrl": "http://<192.168.1.110>:3000" 
+      "apiBaseUrl": "http://${process.env.HOST}:${process.env.PORT}"
     }
   }
 }

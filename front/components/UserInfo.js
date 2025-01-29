@@ -35,13 +35,16 @@ const UserInfo = ({ onLogout }) => {
         <View style={[
             styles.container,
             {
-                transform: `translateY(${isVisible ? '0' : '-100px'})`,
-                opacity: isVisible ? 1 : 0,
-                transition: 'all 0.3s ease',
+                transform: [{ translateY: isVisible ? 0 : -100 }],
+                opacity: isVisible ? 1 : 0
             }
         ]}>
             <Text style={styles.username}>{user.username}</Text>
-            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <TouchableOpacity 
+                style={styles.logoutButton} 
+                onPress={handleLogout}
+                activeOpacity={0.8}
+            >
                 <Text style={styles.logoutText}>Çıkış Yap</Text>
             </TouchableOpacity>
         </View>
@@ -63,12 +66,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        pointerEvents: 'auto'
+        transition: 'all 0.3s ease'
     },
     username: {
         color: '#fff',
         fontSize: 14,
-        fontWeight: '500',
+        fontWeight: '500'
     },
     logoutButton: {
         backgroundColor: 'rgba(255, 59, 48, 0.2)',
@@ -76,12 +79,12 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255, 59, 48, 0.3)',
+        borderColor: 'rgba(255, 59, 48, 0.3)'
     },
     logoutText: {
         color: '#fff',
         fontSize: 12,
-        fontWeight: '500',
+        fontWeight: '500'
     }
 });
 

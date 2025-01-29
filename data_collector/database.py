@@ -19,20 +19,13 @@ class Database:
             "TrustServerCertificate=yes;"
             "Encrypt=no;"
         )
-        logging.info(f"Veritabanı bağlantı dizesi hazırlandı: {self.connection_string}")
         
     def connect(self):
         try:
-            logging.info("Veritabanına bağlanılıyor...")
             conn = pyodbc.connect(self.connection_string)
-            logging.info(f"Veritabanı bağlantısı başarılı! ({DB_CONFIG['database']})")
             return conn
         except Exception as e:
-            logging.error(f"Veritabanı bağlantı hatası: {str(e)}")
-            logging.error(f"Hata detayı: {e.__class__.__name__}")
-            logging.info("Mevcut ODBC sürücüleri kontrol ediliyor...")
-            drivers = [x for x in pyodbc.drivers() if x.startswith('SQL Server')]
-            logging.info(f"Kullanılabilir SQL Server sürücüleri: {drivers}")
+            logging.error(f"Hata: {str(e)}")
             return None
 
     def get_last_candle(self, parite):
@@ -53,7 +46,6 @@ class Database:
             return row[0] if row else None
             
         except Exception as e:
-            logging.error(f"Son kur verisi çekme hatası: {str(e)}")
             return None
         finally:
             conn.close()
@@ -67,7 +59,6 @@ class Database:
             veriler_df (pd.DataFrame): Kur verileri DataFrame'i
         """
         if veriler_df.empty:
-            logging.info(f"Kaydedilecek veri yok: {parite}")
             return True
 
         conn = self.connect()
@@ -128,11 +119,9 @@ class Database:
                 data_dict['tarih'])
 
             conn.commit()
-            logging.info(f"{len(daily_df)} adet günlük kur verisi başarıyla kaydedildi: {parite}")
             return True
             
         except Exception as e:
-            logging.error(f"Veri kaydetme hatası ({parite}): {str(e)}")
             return False
         finally:
             conn.close()

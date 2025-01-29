@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { useUser } from '../context/UserContext';
 
-const API_BASE_URL = 'http://192.168.1.110:3000';
+const API_BASE_URL = 'http://192.168.1.106:3000';
 
 const LoginModal = ({ visible, onClose, onSuccess, actionType: initialActionType }) => {
   const { setUser } = useUser();

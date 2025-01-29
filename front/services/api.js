@@ -1,5 +1,5 @@
 // front/services/api.js
-const BASE_URL = 'http://192.168.1.110:3000/api';
+const BASE_URL = 'http://192.168.1.106:3000/api';
 
 // Token işlemleri
 const getToken = () => {
@@ -49,10 +49,13 @@ export const postData = async (endpoint, data) => {
     const response = await fetch(`${BASE_URL}/${endpoint}`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(data),
+      body: JSON.stringify(data)
     });
     
     if (!response.ok) {
+      if (response.status === 0) {
+        throw new Error('Sunucu bağlantısı başarısız oldu. Lütfen internet bağlantınızı ve sunucunun çalıştığını kontrol edin.');
+      }
       const errorData = await response.json();
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
@@ -60,7 +63,6 @@ export const postData = async (endpoint, data) => {
     const responseData = await response.json();
     console.log('POST yanıtı:', responseData);
 
-    // Login başarılı olduysa token'ı kaydet
     if (endpoint === 'kullanicilar/validate' && responseData.success && responseData.data.token) {
       setToken(responseData.data.token);
     }
@@ -83,6 +85,9 @@ export const fetchData = async (endpoint) => {
     });
     
     if (!response.ok) {
+      if (response.status === 0) {
+        throw new Error('Sunucu bağlantısı başarısız oldu. Lütfen internet bağlantınızı ve sunucunun çalıştığını kontrol edin.');
+      }
       const errorData = await response.json();
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }

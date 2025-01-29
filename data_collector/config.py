@@ -34,12 +34,12 @@ CURRENCY_PAIRS = [
 ]
 
 # Veri çekme sıklığı (saniye)
-UPDATE_INTERVAL = 3600  # Her saat başı
+UPDATE_INTERVAL = 1  # Realtime güncelleme için 1 saniye
 
 # Veri toplama ayarları
 COLLECTION_CONFIG = {
-    "start_date": "2025-01-01 00:00:00",  # UTC+0
+    "start_date": "2025-1-1 00:00:00",  # UTC+0
     "timeframe": "1d",  # Günlük mumlar
-    "retry_delay": 60,  # Hata durumunda bekleme süresi (saniye)
-    "rate_limit_delay": 1  # API rate limit için bekleme süresi (saniye)
+    "retry_delay": 1,  # Hata durumunda bekleme süresi (saniye)
+    "rate_limit_delay": 0.1  # API rate limit için bekleme süresi (saniye)
 } 

@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
     margin: 0,
     maxWidth: '1800px',
     scrollSnapAlign: 'start',
-    '@media (max-width: 768px)': {
+    '@media (maxWidth: 768)': {
       scrollSnapStop: 'always',
     },
   },
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
     boxShadow: `0 ${calcSize(10)} ${calcSize(20)} rgba(0,123,255,0.2)`,
     border: '1px solid rgba(255,255,255,0.1)',
     padding: '20px',
-    '@media (max-width: 768px)': {
+    '@media (maxWidth: 768)': {
       width: '90%',
       minHeight: '40px',
       height: '40px',
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     height: calcSize(50),
     minHeight: 'auto',
     boxShadow: `0 ${calcSize(4)} ${calcSize(8)} rgba(0,123,255,0.2)`,
-    '@media (max-width: 768px)': {
+    '@media (maxWidth: 768)': {
       width: '45%',
     },
   },
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     transition: 'all 0.3s ease',
     whiteSpace: 'nowrap',
-    '@media (max-width: 768px)': {
+    '@media (maxWidth: 768)': {
       fontSize: calcFontSize(18),
     },
   },
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     boxShadow: `0 ${calcSize(4)} ${calcSize(8)} rgba(0,0,0,0.2)`,
     border: '1px solid rgba(255,255,255,0.1)',
     margin: calcSize(8),
-    '@media (max-width: 768px)': {
+    '@media (maxWidth: 768)': {
       height: calcSize(80),
       padding: calcSize(8),
     },
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     fontSize: calcFontSize(24),
     fontWeight: '500',
     whiteSpace: 'nowrap',
-    '@media (max-width: 768px)': {
+    '@media (maxWidth: 768)': {
       fontSize: calcFontSize(18),
     },
   },
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 1,
     transition: 'transform 0.3s ease',
-    '@media (max-width: 768px)': {
+    '@media (maxWidth: 768)': {
       scrollSnapAlign: 'start',
       scrollSnapStop: 'always',
     },
@@ -397,8 +397,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     width: '100%',
-    pointerEvents: 'none',
-    userSelect: 'none',
+    style: {
+      pointerEvents: 'none',
+      userSelect: 'none'
+    }
   },
   tableBody: {
     width: '100%',
@@ -822,20 +824,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: calcFontSize(12),
   },
-  '@-ms-viewport': {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    minimumScale: 1,
-  },
   '@viewport': {
     width: 'device-width',
     initialScale: 1,
     maximumScale: 1,
     minimumScale: 1,
   },
+  '@-ms-viewport': {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    minimumScale: 1,
+  },
   touchAction: {
-    pointerEvents: 'none',
+    style: {
+      pointerEvents: 'none'
+    }
   },
   dragIndicator: {
     position: 'absolute',
