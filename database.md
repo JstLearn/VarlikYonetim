@@ -2,6 +2,126 @@
   "info": "Bu dosya, projenin veritabanı tablolarına ait temel bilgileri içermektedir. Yapay zeka klasörümde bu veritabanı yapısını da dikkate alacağım.",
   "tables": [
     {
+      "tableName": "pariteler",
+      "purpose": "Borsa paritelerini ve özelliklerini saklar.",
+      "columns": [
+        {
+          "columnName": "ID",
+          "dataType": "int",
+          "allowNull": false,
+          "description": "Parite kaydı için benzersiz kimlik (Primary Key)."
+        },
+        {
+          "columnName": "parite",
+          "dataType": "nvarchar(50)",
+          "allowNull": true,
+          "description": "Parite adı (örn: BTC/USDT)."
+        },
+        {
+          "columnName": "borsa",
+          "dataType": "nvarchar(50)",
+          "allowNull": true,
+          "description": "Paritenin bulunduğu borsa (örn: BINANCE)."
+        },
+        {
+          "columnName": "tip",
+          "dataType": "nvarchar(50)",
+          "allowNull": true,
+          "description": "Paritenin tipi (örn: SPOT, FUTURES)."
+        },
+        {
+          "columnName": "ulke",
+          "dataType": "nvarchar(150)",
+          "allowNull": true,
+          "description": "İlgili ülke."
+        },
+        {
+          "columnName": "aciklama",
+          "dataType": "nvarchar(500)",
+          "allowNull": true,
+          "description": "Parite hakkında açıklayıcı bilgi."
+        },
+        {
+          "columnName": "aktif",
+          "dataType": "bit",
+          "allowNull": true,
+          "description": "Paritenin aktif olup olmadığı."
+        },        
+        {
+          "columnName": "kayit_tarihi",
+          "dataType": "datetime",
+          "allowNull": false,
+          "description": "Kaydın oluşturulma tarihi."
+        }
+      ]
+    },
+    {
+      "tableName": "kurlar",
+      "purpose": "Döviz veya diğer parite verilerini saklar.",
+      "columns": [
+        {
+          "columnName": "id",
+          "dataType": "bigint",
+          "allowNull": false,
+          "description": "Kur kaydı için benzersiz kimlik (Primary Key)."
+        },
+        {
+          "columnName": "parite",
+          "dataType": "nvarchar(150)",
+          "allowNull": true,
+          "description": "Kur çiftinin adı (ör: USD/TRY, EUR/USD vb.)."
+        },
+        {
+          "columnName": "interval",
+          "dataType": "nvarchar(150)",
+          "allowNull": true,
+          "description": "Kur verisi aralığı (ör: günlük, saatlik vb.)."
+        },
+        {
+          "columnName": "borsa",
+          "dataType": "nvarchar(150)",
+          "allowNull": true,
+          "description": "Kurun işlem gördüğü borsa."
+        },
+        {
+          "columnName": "tip",
+          "dataType": "nvarchar(150)",
+          "allowNull": true,
+          "description": "Kurun türü (ör: Döviz, Kripto vb.)."
+        },
+        {
+          "columnName": "ulke",
+          "dataType": "nvarchar(150)",
+          "allowNull": true,
+          "description": "İlgili ülke ismi (ör: Türkiye, ABD vb.)."
+        },
+        {
+          "columnName": "fiyat",
+          "dataType": "decimal",
+          "allowNull": true,
+          "description": "Kurun anlık fiyatı."
+        },
+        {
+          "columnName": "dolar_karsiligi",
+          "dataType": "decimal",
+          "allowNull": true,
+          "description": "1 birimin USD cinsinden karşılığı."
+        },
+        {
+          "columnName": "tarih",
+          "dataType": "datetime",
+          "allowNull": true,
+          "description": "Kur verisinin ait olduğu tarih."
+        },
+        {
+          "columnName": "kayit_tarihi",
+          "dataType": "datetime",
+          "allowNull": false,
+          "description": "Verinin sisteme kaydedildiği tarih."
+        }
+      ]
+    },
+    {
       "tableName": "varliklar",
       "purpose": "Kullanıcıların sahip olduğu varlıkları (alış, satış, kâr/zarar vb.) takip eder.",
       "columns": [
@@ -289,66 +409,6 @@
           "allowNull": false,
           "description": "Kaydın oluşturulma veya güncellenme tarihi.",
           "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
-        }
-      ]
-    },
-    {
-      "tableName": "kurlar",
-      "purpose": "Döviz veya diğer parite verilerini saklar.",
-      "columns": [
-        {
-          "columnName": "id",
-          "dataType": "bigint",
-          "allowNull": false,
-          "description": "Kur kaydı için benzersiz kimlik (Primary Key)."
-        },
-        {
-          "columnName": "parite",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Kur çiftinin adı (ör: USD/TRY, EUR/USD vb.)."
-        },
-        {
-          "columnName": "interval",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Kur verisi aralığı (ör: günlük, saatlik vb.)."
-        },
-        {
-          "columnName": "tip",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Kurun türü (ör: Döviz, Kripto vb.)."
-        },
-        {
-          "columnName": "ulke",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "İlgili ülke ismi (ör: Türkiye, ABD vb.)."
-        },
-        {
-          "columnName": "fiyat",
-          "dataType": "decimal",
-          "allowNull": true,
-          "description": "Kurun anlık fiyatı."
-        },
-        {
-          "columnName": "dolar_karsiligi",
-          "dataType": "decimal",
-          "allowNull": true,
-          "description": "1 birimin USD cinsinden karşılığı."
-        },
-        {
-          "columnName": "tarih",
-          "dataType": "datetime",
-          "allowNull": true,
-          "description": "Kur verisinin ait olduğu tarih."
-        },
-        {
-          "columnName": "kayit_tarihi",
-          "dataType": "datetime",
-          "allowNull": false,
-          "description": "Verinin sisteme kaydedildiği tarih."
         }
       ]
     },

@@ -51,6 +51,8 @@ cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim/front && npm start
 # Veri Toplama Servisi Başlatma
 cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && venv\Scripts\activate && python main.py
 ```
+# Parite Toplama Servisi Başlatma
+cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && python parite_collector.py
 
 # Kod Organizasyonu ve Standartları
 1. Backend (Node.js):

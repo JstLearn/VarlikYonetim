@@ -27,6 +27,15 @@ const removeToken = () => {
   }
 };
 
+// Yeni token kontrolü ve güncelleme
+const checkAndUpdateToken = (response) => {
+  const newToken = response.headers.get('New-Token');
+  if (newToken) {
+    setToken(newToken);
+    console.log('Token yenilendi');
+  }
+};
+
 // API istekleri için ortak header'ları oluştur
 const getHeaders = () => {
   const headers = { 
@@ -42,23 +51,46 @@ const getHeaders = () => {
   return headers;
 };
 
-export const postData = async (endpoint, data) => {
+// API isteği yap ve token kontrolü
+const makeRequest = async (url, options) => {
   try {
-    console.log('POST isteği:', `${BASE_URL}/${endpoint}`, data);
+    const response = await fetch(url, options);
     
-    const response = await fetch(`${BASE_URL}/${endpoint}`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(data)
-    });
+    // Yeni token varsa güncelle
+    checkAndUpdateToken(response);
     
     if (!response.ok) {
       if (response.status === 0) {
         throw new Error('Sunucu bağlantısı başarısız oldu. Lütfen internet bağlantınızı ve sunucunun çalıştığını kontrol edin.');
       }
+      
+      if (response.status === 401) {
+        // Token hatası - kullanıcıyı logout yap
+        removeToken();
+        window.location.href = '/login';
+        throw new Error('Oturum süresi doldu. Lütfen tekrar giriş yapın.');
+      }
+      
       const errorData = await response.json();
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
+    
+    return response;
+  } catch (error) {
+    console.error('API Error:', error);
+    throw error;
+  }
+};
+
+export const postData = async (endpoint, data) => {
+  try {
+    console.log('POST isteği:', `${BASE_URL}/${endpoint}`, data);
+    
+    const response = await makeRequest(`${BASE_URL}/${endpoint}`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
     
     const responseData = await response.json();
     console.log('POST yanıtı:', responseData);
@@ -79,18 +111,10 @@ export const fetchData = async (endpoint) => {
     const url = `${BASE_URL}/${endpoint}`;
     console.log('GET isteği:', url);
     
-    const response = await fetch(url, {
+    const response = await makeRequest(url, {
       method: 'GET',
       headers: getHeaders()
     });
-    
-    if (!response.ok) {
-      if (response.status === 0) {
-        throw new Error('Sunucu bağlantısı başarısız oldu. Lütfen internet bağlantınızı ve sunucunun çalıştığını kontrol edin.');
-      }
-      const errorData = await response.json();
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-    }
     
     const data = await response.json();
     console.log('GET yanıtı:', data);

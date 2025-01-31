@@ -5,6 +5,7 @@ Veri çekme uygulaması için yapılandırma ayarları
 import os
 from dotenv import load_dotenv
 import pathlib
+import logging
 
 # .env dosyasının yolunu belirle ve yükle
 env_path = pathlib.Path(__file__).parent.parent / '.env'
@@ -15,9 +16,13 @@ DB_CONFIG = {
     "server": os.getenv('DB_SERVER'),
     "database": os.getenv('DB_DATABASE'),
     "user": os.getenv('DB_USER'),
-    "password": os.getenv('DB_PASSWORD'),
-    "driver": "SQL Server Native Client 11.0"
+    "password": os.getenv('DB_PASSWORD')
 }
+
+# Konfigürasyon kontrolü
+for key, value in DB_CONFIG.items():
+    if not value:
+        logging.error(f"Eksik veritabanı konfigürasyonu: {key}")
 
 # Para birimleri listesi - Tüm para birimlerinin USD karşılığı
 CURRENCY_PAIRS = [
@@ -34,8 +39,7 @@ CURRENCY_PAIRS = [
 ]
 
 # Veri çekme sıklığı (saniye)
-UPDATE_INTERVAL = 1  # Realtime güncelleme için 1 saniye
-
+UPDATE_INTERVAL = 1  # Realtime güncelleme için 1 saniye 
 # Veri toplama ayarları
 COLLECTION_CONFIG = {
     "start_date": "2025-1-1 00:00:00",  # UTC+0
