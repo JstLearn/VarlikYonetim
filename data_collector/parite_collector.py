@@ -26,9 +26,7 @@ def check_sql_driver():
         drivers = [x for x in pyodbc.drivers() if x.startswith('SQL Server')]
         if not drivers:
             print("SQL Server sürücüsü bulunamadı!")
-            print("Kullanılabilir sürücüler:", pyodbc.drivers())
             return False
-        print(f"Kullanılabilir SQL Server sürücüleri: {drivers}")
         return True
     except Exception as e:
         print(f"Sürücü kontrolü sırasında hata: {str(e)}")
@@ -342,7 +340,6 @@ def run_continuous():
     while True:
         try:
             # 1. Binance pariteleri
-            print("\n=== Binance Pariteleri İşleniyor ===")
             binance_pariteler = get_binance_pariteler()
             if binance_pariteler:
                 print(f"Binance: {len(binance_pariteler)} parite bulundu", end=" -> ")
@@ -351,7 +348,6 @@ def run_continuous():
             
             
             # 2. Forex pariteleri
-            print("\n=== Forex Pariteleri İşleniyor ===")
             forex_pariteler = get_forex_pariteler()
             if forex_pariteler:
                 print(f"Forex: {len(forex_pariteler)} parite bulundu", end=" -> ")
@@ -360,11 +356,8 @@ def run_continuous():
             
             
             # 3. Hisse senetleri
-            print("\n=== Hisse Senetleri İşleniyor ===")
             get_stocks()  # Direkt işlem yapacak
-            
-            print("\n5 saniye bekleniyor...")
-            
+                        
         except KeyboardInterrupt:
             print("\nProgram kullanıcı tarafından durduruldu")
             break
