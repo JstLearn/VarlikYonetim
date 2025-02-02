@@ -16,7 +16,6 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 │   │   ├── kullaniciController.js # Kullanıcı işlemleri kontrolcüsü
 │   │   ├── borcController.js      # Borç/gider işlemleri kontrolcüsü
 │   │   ├── gelirController.js     # Gelir işlemleri kontrolcüsü
-│   │   ├── giderController.js     # Gider işlemleri kontrolcüsü
 │   │   └── varlikController.js    # Varlık işlemleri kontrolcüsü
 │   │
 │   ├── /middleware                 # Express middleware'leri
@@ -33,7 +32,6 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 │   │   ├── kullaniciRoutes.js    # Kullanıcı API rotaları
 │   │   ├── borcRoutes.js         # Borç API rotaları
 │   │   ├── gelirRoutes.js        # Gelir API rotaları
-│   │   ├── giderRoutes.js        # Gider API rotaları
 │   │   └── varlikRoutes.js       # Varlık API rotaları
 │   │
 │   ├── /utils                      # Yardımcı araçlar
@@ -42,9 +40,12 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 │   │   └── validation.js         # Veri doğrulama yardımcıları
 │   │
 │   ├── Main.js                     # Ana giriş noktası ve Express sunucusu
-│   └── package.json                # Backend bağımlılıkları
+│   ├── package.json                # Backend bağımlılıkları
+│   └── package-lock.json           # Backend bağımlılık kilitleri
 │
 ├── /front                          # Frontend uygulaması (React Native Web)
+│   ├── /assets                     # Statik varlıklar (resim, font vb.)
+│   │
 │   ├── /components                 # UI bileşenleri
 │   │   ├── /Auth                  # Kimlik doğrulama bileşenleri
 │   │   ├── /Buttons              # Özel buton bileşenleri
@@ -53,9 +54,7 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 │   │   ├── /Header              # Başlık ve navigasyon bileşenleri
 │   │   ├── /Layout              # Sayfa düzeni bileşenleri
 │   │   ├── /Modal               # Modal dialog bileşenleri
-│   │   ├── /Tables              # Tablo bileşenleri
-│   │   ├── LoginModal.js        # Giriş yapma modal'ı
-│   │   └── UserInfo.js          # Kullanıcı bilgileri bileşeni
+│   │   └── /Tables              # Tablo bileşenleri
 │   │
 │   ├── /context                    # React context'leri
 │   │   ├── AuthContext.js        # Kimlik doğrulama context'i
@@ -63,7 +62,6 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 │   │
 │   ├── /public                     # Statik dosyalar
 │   │   ├── index.html           # Ana HTML şablonu
-│   │   ├── favicon.ico          # Site ikonu
 │   │   └── assets/              # Resim ve diğer medya dosyaları
 │   │
 │   ├── /services                   # API servisleri
@@ -81,28 +79,32 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 │   │   └── theme.js            # Tema yapılandırması
 │   │
 │   ├── App.js                      # Ana uygulama bileşeni
+│   ├── app.json                    # Uygulama yapılandırması
 │   ├── index.html                  # Ana HTML dosyası
 │   ├── index.web.js                # Web giriş noktası
 │   ├── webpack.config.js           # Webpack yapılandırması
 │   ├── babel.config.js             # Babel yapılandırması
 │   ├── .babelrc                    # Babel ek yapılandırması
-│   └── package.json                # Frontend bağımlılıkları
+│   ├── package.json                # Frontend bağımlılıkları
+│   └── package-lock.json           # Frontend bağımlılık kilitleri
 │
 ├── /data_collector                 # Veri toplama servisi (Python)
 │   ├── /venv                       # Python sanal ortamı
-│   ├── collectors.py               # Veri toplayıcı modüller (Borsa, Döviz, Kripto)
-│   ├── config.py                   # Servis yapılandırması ve API anahtarları
-│   ├── database.py                 # Veritabanı işlemleri ve model tanımları
-│   ├── main.py                     # Servis giriş noktası ve zamanlanmış görevler
-│   └── requirements.txt            # Python bağımlılıkları
-│
-├── /Yedek                          # Yedek dosyaları
-│   └── ...                         # Otomatik ve manuel yedekler
+│   ├── /__pycache__               # Python önbellek klasörü
+│   ├── collectors.py               # Veri toplayıcı modüller
+│   ├── config.py                   # Servis yapılandırması
+│   ├── database.py                 # Veritabanı işlemleri
+│   ├── main.py                     # Servis giriş noktası
+│   ├── parite_collector.py         # Parite veri toplayıcı
+│   ├── currency_page.html          # Döviz sayfası şablonu
+│   ├── requirements.txt            # Python bağımlılıkları
+│   └── README.md                   # Servis dokümantasyonu
 │
 ├── database.md                     # Veritabanı şema dokümantasyonu
 ├── folderStructure.md              # Klasör yapısı dokümantasyonu
-├── .env                            # Ortam değişkenleri (API anahtarları, DB bilgileri)
-└── .gitignore                      # Git yoksayma listesi
+├── .env                            # Ortam değişkenleri
+├── .gitignore                      # Git yoksayma listesi
+└── .cursorrules                    # Cursor IDE kuralları
 ```
 
 ## Servis Açıklamaları
@@ -134,7 +136,7 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 - **Backend:** Node.js, Express, MsSQL, JWT
 - **Frontend:** React Native Web, Context API, Axios
 - **Veri Toplama:** Python, Requests, SQLAlchemy
-- **DevOps:** Docker, Git
+- **DevOps:** Git
 - **Diğer:** SMTP, REST API
 
 ## Notlar
@@ -142,7 +144,6 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 - Backend servisi Node.js/Express ile geliştirilmiştir ve MsSQL veritabanı kullanmaktadır
 - Frontend React Native Web kullanılarak geliştirilmiştir ve web tarayıcılarında çalışır
 - Veri toplama servisi Python ile yazılmış olup, döviz kurları ve diğer finansal verileri toplar
-- Tüm servisler Docker konteynerlerinde çalışacak şekilde yapılandırılabilir
 - Sistem modüler yapıda tasarlanmış olup, yeni özellikler kolayca eklenebilir
 
 

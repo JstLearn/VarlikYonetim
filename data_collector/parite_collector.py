@@ -160,8 +160,6 @@ def get_stocks():
                 print(f"{country} hatası: {str(e)}")
                 continue
         
-        if toplam_eklenen > 0:
-            print(f"Toplam {toplam_eklenen} yeni hisse eklendi\n")
         
         return []
         
@@ -257,8 +255,6 @@ def get_indices():
                     print(f"{country} endeks hatası: {error_msg}")
                 continue
         
-        if toplam_eklenen > 0:
-            print(f"Toplam {toplam_eklenen} yeni endeks eklendi\n")
         
         return []
         
@@ -282,30 +278,36 @@ def get_commodities():
         for _, commodity in commodities.iterrows():
             try:
                 # Emtianın işlem gördüğü para birimini al
-                currency = 'USD'  # Emtialar genellikle USD üzerinden işlem görür
+                currency = commodity.get('currency', 'USD')  # Varsayılan USD
+                if not currency:
+                    currency = 'USD'
                 
                 # Sembol oluştur
-                symbol = commodity['name'].upper().replace(' ', '_')
+                name = commodity['name'].strip()
+                symbol = name.upper().replace(' ', '_')
+                
+                # Açıklama oluştur
+                description = f"{name} - {commodity.get('group', '').title()} Commodity"
+                if commodity.get('country'):
+                    description += f" ({commodity['country'].title()})"
                 
                 commodity_info = {
-                    'parite': f"{symbol}/USD",
+                    'parite': f"{symbol}/{currency}",
                     'aktif': 1,
                     'borsa': 'COMMODITY',
                     'tip': 'COMMODITY',
-                    'ulke': 'Global',
-                    'aciklama': f"{commodity['name']} - {commodity.get('category', 'General')} Commodity"
+                    'ulke': commodity.get('country', 'Global').title(),
+                    'aciklama': description
                 }
                 commodity_list.append(commodity_info)
                 
             except Exception as e:
-                print(f"Emtia işleme hatası ({commodity['name']}): {str(e)}")
+                print(f"Emtia işleme hatası ({commodity.get('name', 'Bilinmeyen')}): {str(e)}")
                 continue
         
         eklenen, guncellenen, silinen = sync_pariteler_to_db(commodity_list)
         print(f"{eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
         
-        if eklenen > 0:
-            print(f"Toplam {eklenen} yeni emtia eklendi\n")
         
         return commodity_list
         

@@ -1,5 +1,5 @@
 {
-  "info": "Bu dosya, projenin veritabanı tablolarına ait temel bilgileri içermektedir. Yapay zeka klasörümde bu veritabanı yapısını da dikkate alacağım.",
+  "info": "Bu dosya, projenin veritabanı tablolarına ait temel bilgileri içermektedir. Son güncelleme tarihi: 2024-03-19",
   "tables": [
     {
       "tableName": "pariteler",
@@ -13,31 +13,31 @@
         },
         {
           "columnName": "parite",
-          "dataType": "nvarchar(50)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Parite adı (örn: BTC/USDT)."
         },
         {
           "columnName": "borsa",
-          "dataType": "nvarchar(50)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Paritenin bulunduğu borsa (örn: BINANCE)."
         },
         {
           "columnName": "tip",
-          "dataType": "nvarchar(50)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Paritenin tipi (örn: SPOT, FUTURES)."
         },
         {
           "columnName": "ulke",
-          "dataType": "nvarchar(150)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "İlgili ülke."
         },
         {
           "columnName": "aciklama",
-          "dataType": "nvarchar(500)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Parite hakkında açıklayıcı bilgi."
         },
@@ -46,7 +46,7 @@
           "dataType": "bit",
           "allowNull": true,
           "description": "Paritenin aktif olup olmadığı."
-        },        
+        },
         {
           "columnName": "kayit_tarihi",
           "dataType": "datetime",
@@ -67,31 +67,31 @@
         },
         {
           "columnName": "parite",
-          "dataType": "nvarchar(150)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Kur çiftinin adı (ör: USD/TRY, EUR/USD vb.)."
         },
         {
           "columnName": "interval",
-          "dataType": "nvarchar(150)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Kur verisi aralığı (ör: günlük, saatlik vb.)."
         },
         {
           "columnName": "borsa",
-          "dataType": "nvarchar(150)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Kurun işlem gördüğü borsa."
         },
         {
           "columnName": "tip",
-          "dataType": "nvarchar(150)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "Kurun türü (ör: Döviz, Kripto vb.)."
         },
         {
           "columnName": "ulke",
-          "dataType": "nvarchar(150)",
+          "dataType": "nvarchar",
           "allowNull": true,
           "description": "İlgili ülke ismi (ör: Türkiye, ABD vb.)."
         },
@@ -134,28 +134,28 @@
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": false,
           "description": "Kullanıcı adı veya ID bilgisi.",
           "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
         },
         {
           "columnName": "varlik",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Varlık adı (ör: hisse, coin, ev vb.).",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
         },
         {
           "columnName": "tur",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Varlığın türü (ör: dijital, gayrimenkul vb.).",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
         },
         {
           "columnName": "nerede",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Varlığın bulunduğu yer (ör: borsa, cüzdan vb.).",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
@@ -186,28 +186,28 @@
           "dataType": "numeric",
           "allowNull": true,
           "description": "Mevcut fiyatı (USD cinsinden).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamamalı"
+          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
         },
         {
           "columnName": "kar_zarar",
           "dataType": "numeric",
           "allowNull": true,
           "description": "Toplam kâr/zarar miktarı (USD bazlı).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamamalı"
+          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
         },
         {
           "columnName": "kar_zarar_yuzde",
           "dataType": "numeric",
           "allowNull": true,
           "description": "Kâr/zarar yüzdesi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamamalı"
+          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
         },
         {
           "columnName": "min_satis_fiyati_USD",
           "dataType": "numeric",
           "allowNull": true,
           "description": "Satış için minimum hedef fiyatı (USD).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamamalı"
+          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
         },
         {
           "columnName": "tarih",
@@ -231,14 +231,14 @@
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": false,
           "description": "Kullanıcı adı veya ID bilgisi.",
           "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
         },
         {
           "columnName": "borc",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Borcun adı/tanımı (ör: Kredi kartı, İhtiyaç kredisi vb.).",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
@@ -259,7 +259,7 @@
         },
         {
           "columnName": "para_birimi",
-          "dataType": "varchar(10)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Borcun para birimi (ör: TRY, USD).",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
@@ -301,7 +301,7 @@
         },
         {
           "columnName": "bagimli_oldugu_gelir",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Bu borcun dayandığı bir gelir kaydına referans.",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
@@ -328,14 +328,14 @@
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": false,
           "description": "Kullanıcı adı veya ID bilgisi.",
           "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
         },
         {
           "columnName": "gelir",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Gelirin adı/tanımı (ör: Maaş, ek iş, kira vb.).",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
@@ -356,7 +356,7 @@
         },
         {
           "columnName": "para_birimi",
-          "dataType": "varchar(10)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Gelirin para birimi (ör: TRY, USD).",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
@@ -398,7 +398,7 @@
         },
         {
           "columnName": "bagimli_oldugu_gider",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Bu gelirin dayandığı bir gider kaydına referans.",
           "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
@@ -424,13 +424,13 @@
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar(150)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Kullanıcı adı."
         },
         {
           "columnName": "sifre",
-          "dataType": "varchar(max)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Şifrelenmiş kullanıcı parolası."
         },
@@ -448,7 +448,7 @@
         },
         {
           "columnName": "verification_token",
-          "dataType": "varchar(500)",
+          "dataType": "varchar",
           "allowNull": true,
           "description": "Hesap doğrulama için kullanılan token."
         }
@@ -466,19 +466,19 @@
         },
         {
           "columnName": "kullanici",
-          "dataType": "nchar(150)",
+          "dataType": "nchar",
           "allowNull": true,
           "description": "İsteği oluşturan kullanıcı."
         },
         {
           "columnName": "istekler",
-          "dataType": "nchar(150)",
+          "dataType": "nchar",
           "allowNull": true,
           "description": "İstek veya öneri içeriği."
         },
         {
           "columnName": "oncelik",
-          "dataType": "nchar(150)",
+          "dataType": "nchar",
           "allowNull": true,
           "description": "İsteğin öncelik seviyesi."
         },
@@ -491,5 +491,5 @@
       ]
     }
   ],
-  "note": "Tablolardaki Primary Key (PK), Foreign Key (FK), bit ve diğer veri tipi detayları proje gereksinimlerinize göre düzenlenebilir. Bu dosyada yer alan bilgiler, projenin yapay zeka klasöründe de kullanılacak veritabanı şemasını özetlemektedir."
+  "note": "Bu dosya veritabanı şemasının güncel halini içermektedir. Sistem tablosu olan 'sysdiagrams' tablosu dokümantasyona dahil edilmemiştir."
 }
