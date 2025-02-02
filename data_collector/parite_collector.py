@@ -161,7 +161,7 @@ def get_stocks():
                 continue
         
         if toplam_eklenen > 0:
-            print(f"\nToplam {toplam_eklenen} yeni hisse eklendi")
+            print(f"Toplam {toplam_eklenen} yeni hisse eklendi\n")
         
         return []
         
@@ -195,6 +195,76 @@ def get_forex_pariteler():
                       'aciklama': f"{base}/{quote} Forex Pair"
                   })
     return forex_pariteler
+
+def get_indices():
+    """
+    Investpy üzerinden endeksleri getirir ve direkt veritabanına ekler
+    """
+    try:
+        # Forex için kullanılan para birimi listesini al
+        currency_list = fetch_currency_list()
+        # Para birimi kodlarından ülke listesi oluştur
+        countries = set()
+        
+        # Tüm para birimleri için ülkeleri bul
+        for _, currency_code in currency_list:
+            try:
+                # Para birimi ile ülke arama
+                url = f"https://restcountries.com/v3.1/currency/{currency_code}"
+                response = requests.get(url)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    for country in data:
+                        # Ülke adını küçük harfe çevir
+                        country_name = country.get('name', {}).get('common', '').lower()
+                        if country_name:
+                            countries.add(country_name)
+            except:
+                continue
+        
+        toplam_eklenen = 0
+        
+        for country in countries:
+            try:
+                indices = investpy.get_indices(country=country)
+                if len(indices) == 0:
+                    continue
+                
+                currency = get_country_currency(country)
+                print(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency})", end=" -> ")
+                
+                country_indices = []
+                for _, index in indices.iterrows():
+                    index_info = {
+                        'parite': f"{index['symbol']}/{currency}",
+                        'aktif': 1,
+                        'borsa': f"{country.upper()}_INDEX",
+                        'tip': 'INDEX',
+                        'ulke': country.title(),
+                        'aciklama': f"{index['name']} - {country.title()} Index"
+                    }
+                    country_indices.append(index_info)
+                
+                eklenen, guncellenen, silinen = sync_pariteler_to_db(country_indices)
+                print(f"{eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+                toplam_eklenen += eklenen
+            except Exception as e:
+                error_msg = str(e)
+                if "ERR#0034: country" in error_msg and "not found" in error_msg:
+                    print(f"{country.title()} için endeks verisi bulunamadı")
+                else:
+                    print(f"{country} endeks hatası: {error_msg}")
+                continue
+        
+        if toplam_eklenen > 0:
+            print(f"Toplam {toplam_eklenen} yeni endeks eklendi\n")
+        
+        return []
+        
+    except Exception as e:
+        print(f"Endeks hatası: {str(e)}")
+        return []
 
 def get_all_pariteler():
     """
@@ -335,7 +405,6 @@ def run_continuous():
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(binance_pariteler)
                 print(f"{eklenen} yeni parite, {guncellenen} güncellenen parite, {silinen} silinen parite")
             
-            
             # 2. Forex pariteleri
             forex_pariteler = get_forex_pariteler()
             if forex_pariteler:
@@ -343,8 +412,10 @@ def run_continuous():
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(forex_pariteler)
                 print(f"{eklenen} yeni parite, {guncellenen} güncellenen parite, {silinen} silinen parite")
             
+            # 3. Endeksler
+            get_indices()  # Direkt işlem yapacak
             
-            # 3. Hisse senetleri
+            # 4. Hisse senetleri
             get_stocks()  # Direkt işlem yapacak
                         
         except KeyboardInterrupt:
