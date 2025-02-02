@@ -252,7 +252,7 @@ def get_indices():
             except Exception as e:
                 error_msg = str(e)
                 if "ERR#0034: country" in error_msg and "not found" in error_msg:
-                    print(f"{country.title()} için endeks verisi bulunamadı")
+                    continue
                 else:
                     print(f"{country} endeks hatası: {error_msg}")
                 continue
@@ -266,9 +266,56 @@ def get_indices():
         print(f"Endeks hatası: {str(e)}")
         return []
 
+def get_commodities():
+    """
+    Investpy üzerinden emtia verilerini getirir ve direkt veritabanına ekler
+    """
+    try:
+        commodities = investpy.get_commodities()
+        if len(commodities) == 0:
+            print("Emtia verisi bulunamadı")
+            return []
+            
+        print(f"Emtia: {len(commodities)} emtia bulundu", end=" -> ")
+        
+        commodity_list = []
+        for _, commodity in commodities.iterrows():
+            try:
+                # Emtianın işlem gördüğü para birimini al
+                currency = 'USD'  # Emtialar genellikle USD üzerinden işlem görür
+                
+                # Sembol oluştur
+                symbol = commodity['name'].upper().replace(' ', '_')
+                
+                commodity_info = {
+                    'parite': f"{symbol}/USD",
+                    'aktif': 1,
+                    'borsa': 'COMMODITY',
+                    'tip': 'COMMODITY',
+                    'ulke': 'Global',
+                    'aciklama': f"{commodity['name']} - {commodity.get('category', 'General')} Commodity"
+                }
+                commodity_list.append(commodity_info)
+                
+            except Exception as e:
+                print(f"Emtia işleme hatası ({commodity['name']}): {str(e)}")
+                continue
+        
+        eklenen, guncellenen, silinen = sync_pariteler_to_db(commodity_list)
+        print(f"{eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+        
+        if eklenen > 0:
+            print(f"Toplam {eklenen} yeni emtia eklendi\n")
+        
+        return commodity_list
+        
+    except Exception as e:
+        print(f"Emtia verisi alınamadı: {str(e)}")
+        return []
+
 def get_all_pariteler():
     """
-    Tüm pariteleri (Binance, Forex ve Hisse) getirir
+    Tüm pariteleri (Binance, Forex, Endeks, Emtia ve Hisse) getirir
     """
     try:
         all_pariteler = []
@@ -285,6 +332,22 @@ def get_all_pariteler():
         # Forex paritelerini ekle
         forex_pariteler = get_forex_pariteler()
         for parite in forex_pariteler:
+            parite_key = (parite['parite'], parite['borsa'], parite['tip'])
+            if parite_key not in eklenen_pariteler:
+                all_pariteler.append(parite)
+                eklenen_pariteler.add(parite_key)
+        
+        # Endeksleri ekle
+        indices = get_indices()
+        for parite in indices:
+            parite_key = (parite['parite'], parite['borsa'], parite['tip'])
+            if parite_key not in eklenen_pariteler:
+                all_pariteler.append(parite)
+                eklenen_pariteler.add(parite_key)
+        
+        # Emtiaları ekle
+        commodities = get_commodities()
+        for parite in commodities:
             parite_key = (parite['parite'], parite['borsa'], parite['tip'])
             if parite_key not in eklenen_pariteler:
                 all_pariteler.append(parite)
@@ -412,10 +475,13 @@ def run_continuous():
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(forex_pariteler)
                 print(f"{eklenen} yeni parite, {guncellenen} güncellenen parite, {silinen} silinen parite")
             
-            # 3. Endeksler
+            # 3. Emtialar (Forex'ten hemen sonra)
+            get_commodities()  # Direkt işlem yapacak
+            
+            # 4. Endeksler
             get_indices()  # Direkt işlem yapacak
             
-            # 4. Hisse senetleri
+            # 5. Hisse senetleri
             get_stocks()  # Direkt işlem yapacak
                         
         except KeyboardInterrupt:
