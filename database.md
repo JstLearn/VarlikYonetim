@@ -48,6 +48,18 @@
           "description": "Paritenin aktif olup olmadığı."
         },
         {
+          "columnName": "veri_var",
+          "dataType": "bit",
+          "allowNull": true,
+          "description": "Parite için veri olup olmadığı."
+        },
+        {
+          "columnName": "veriler_guncel",
+          "dataType": "bit",
+          "allowNull": true,
+          "description": "Parite verilerinin güncel olup olmadığı."
+        },
+        {
           "columnName": "kayit_tarihi",
           "dataType": "datetime",
           "allowNull": false,
@@ -99,7 +111,7 @@
           "columnName": "fiyat",
           "dataType": "decimal",
           "allowNull": true,
-          "description": "Kurun anlık fiyatı."
+          "description": "Kurun kapanış fiyatı."
         },
         {
           "columnName": "dolar_karsiligi",

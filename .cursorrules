@@ -1,3 +1,6 @@
+sql server tablolarının isimlerini ve sütun isimlerini sorgula (@.env dosyasında veritabanı bağlantı ayarları var ) daha sonra @database.md dosyasını güncelle
+@VarlikYonetim klasöründeki tüm dosyaları incele ve @folderStructure.md dosyasını güncelle
+
 # Temel Geliştirici Profili ve Teknoloji Yığını
 - Node.js, React Native Web ve Python teknolojilerinde uzman bir Kıdemli Geliştiricisin
 - MsSQL veritabanı ve REST API konularında deneyimlisin
@@ -263,3 +266,7 @@ cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && venv\Scr
 - CI/CD entegrasyonları
 - Netlify veya Vercel gibi hosting servisleri
 - Branching best practices
+
+
+
+

@@ -1,42 +1,61 @@
 """
-Veri toplama uygulaması ana modülü
+Veri toplama servisi ana modülü
 """
 
-import time
-from datetime import datetime, timedelta
-import schedule
-from database import Database
-from collectors import collect_all_data
-from config import UPDATE_INTERVAL
+import signal
+import sys
+import argparse
+from binance_futures_collector import BinanceFuturesCollector
+from binance_spot_collector import BinanceSpotCollector
+from forex_collector import ForexCollector
+from index_collector import IndexCollector
+from commodity_collector import CommodityCollector
+from stock_collector import StockCollector
 
-def update_data():
-    """Verileri günceller"""
-    try:
-        db = Database()
-        collect_all_data(db)
-    except Exception as e:
-        print(f"Veri güncelleme hatası: {str(e)}")
+def signal_handler(sig, frame):
+    """Ctrl+C ile programı sonlandır"""
+    print('\nProgram sonlandırılıyor...')
+    sys.exit(0)
 
 def main():
-    """Ana program döngüsü"""
+    """Ana fonksiyon"""
+    # Sinyal işleyicisini ayarla
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    # Argüman ayrıştırıcıyı ayarla
+    parser = argparse.ArgumentParser(description='Veri toplama servisi')
+    parser.add_argument('--source', type=str, choices=['all', 'binance_futures', 'binance_spot', 'forex', 'index', 'commodity', 'stock'],
+                      default='all', help='Veri kaynağı')
+    args = parser.parse_args()
+    
     try:
-        print("Veri toplama uygulaması başlatıldı")
-        print(f"Güncelleme aralığı: {UPDATE_INTERVAL} saniye")
-                
-        # İlk çalıştırmada verileri topla
-        update_data()
-                    
-        # Belirli aralıklarla güncelleme yap
-        schedule.every(UPDATE_INTERVAL).seconds.do(update_data)
-                    
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-                
-    except KeyboardInterrupt:
-        print("Program kapatılıyor...")
+        if args.source in ['all', 'binance_futures']:
+            collector = BinanceFuturesCollector()
+            collector.run()
+            
+        if args.source in ['all', 'binance_spot']:
+            collector = BinanceSpotCollector()
+            collector.run()
+            
+        if args.source in ['all', 'forex']:
+            collector = ForexCollector()
+            collector.run()
+            
+        if args.source in ['all', 'index']:
+            collector = IndexCollector()
+            collector.run()
+            
+        if args.source in ['all', 'commodity']:
+            collector = CommodityCollector()
+            collector.run()
+            
+        if args.source in ['all', 'stock']:
+            collector = StockCollector()
+            collector.run()
+            
     except Exception as e:
-        print(f"Program hatası: {str(e)}")
+        print(f"Hata: {str(e)}")
+        sys.exit(1)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main() 

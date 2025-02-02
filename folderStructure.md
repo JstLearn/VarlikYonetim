@@ -91,12 +91,16 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 ├── /data_collector                 # Veri toplama servisi (Python)
 │   ├── /venv                       # Python sanal ortamı
 │   ├── /__pycache__               # Python önbellek klasörü
-│   ├── collectors.py               # Veri toplayıcı modüller
+│   ├── binance_futures_collector.py # Binance vadeli işlem veri toplayıcı
+│   ├── binance_spot_collector.py   # Binance spot veri toplayıcı
+│   ├── forex_collector.py          # Forex veri toplayıcı
+│   ├── index_collector.py          # Endeks veri toplayıcı
+│   ├── commodity_collector.py      # Emtia veri toplayıcı
+│   ├── stock_collector.py          # Hisse senedi veri toplayıcı
+│   ├── parite_collector.py         # Parite veri toplayıcı
 │   ├── config.py                   # Servis yapılandırması
 │   ├── database.py                 # Veritabanı işlemleri
 │   ├── main.py                     # Servis giriş noktası
-│   ├── parite_collector.py         # Parite veri toplayıcı
-│   ├── currency_page.html          # Döviz sayfası şablonu
 │   ├── requirements.txt            # Python bağımlılıkları
 │   └── README.md                   # Servis dokümantasyonu
 │
@@ -125,17 +129,20 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 - Grafik ve raporlama araçları
 
 ### Veri Toplama Servisi (Python)
-- Döviz kurları toplama
-- Kripto para fiyatları toplama
-- Borsa verileri toplama
+- Binance Futures ve Spot veri toplama
+- Forex kurları toplama
+- Endeks verileri toplama
+- Emtia fiyatları toplama
+- Hisse senedi verileri toplama
 - Zamanlanmış otomatik veri güncelleme
 - Veritabanına otomatik kayıt
+- Modüler veri toplayıcı yapısı
 
 ## Teknoloji Yığını
 
 - **Backend:** Node.js, Express, MsSQL, JWT
 - **Frontend:** React Native Web, Context API, Axios
-- **Veri Toplama:** Python, Requests, SQLAlchemy
+- **Veri Toplama:** Python, yfinance, python-binance, SQLAlchemy
 - **DevOps:** Git
 - **Diğer:** SMTP, REST API
 
@@ -143,7 +150,8 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 
 - Backend servisi Node.js/Express ile geliştirilmiştir ve MsSQL veritabanı kullanmaktadır
 - Frontend React Native Web kullanılarak geliştirilmiştir ve web tarayıcılarında çalışır
-- Veri toplama servisi Python ile yazılmış olup, döviz kurları ve diğer finansal verileri toplar
+- Veri toplama servisi Python ile yazılmış olup, modüler yapıda tasarlanmıştır
+- Her veri kaynağı için ayrı toplayıcı modüller bulunmaktadır
 - Sistem modüler yapıda tasarlanmış olup, yeni özellikler kolayca eklenebilir
 
 

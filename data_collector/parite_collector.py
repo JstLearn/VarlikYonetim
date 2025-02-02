@@ -452,7 +452,7 @@ def sync_pariteler_to_db(yeni_pariteler):
         
     finally:
         if db:
-            db.close()
+            db.disconnect()
 
 def run_continuous():
     """Sürekli çalışan ana döngü"""
