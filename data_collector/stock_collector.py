@@ -55,7 +55,8 @@ class StockCollector:
             df = ticker.history(
                 start=start_date,
                 end=end_date or datetime.now(timezone.utc),
-                interval='1d'
+                interval='1d',
+                ignore_tz=True  # Zaman dilimi hatalarını önle
             )
             
             if df.empty:

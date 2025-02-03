@@ -68,10 +68,13 @@ class ForexCollector:
             # Veriyi çek
             df = yf.download(
                 tickers=yf_symbol,
-                start=start_date,
-                end=end_date or datetime.now(timezone.utc),
+                start=start_date.strftime('%Y-%m-%d'),  # Tarihi string formatına çevir
+                end=(end_date or datetime.now(timezone.utc)).strftime('%Y-%m-%d'),  # Tarihi string formatına çevir
                 interval='1d',
-                progress=False
+                progress=False,
+                auto_adjust=True,  # Otomatik düzeltme yap
+                prepost=False,  # Pre/post market verilerini alma
+                threads=False  # Tek thread kullan
             )
             
             # Hata mesajını al
@@ -100,7 +103,17 @@ class ForexCollector:
             
             # Tarih formatını ayarla
             start_str = start_date.strftime('%d/%m/%Y')
-            end_str = (end_date or datetime.now()).strftime('%d/%m/%Y')
+            end_str = (end_date or datetime.now(timezone.utc)).strftime('%d/%m/%Y')
+            
+            # Tarihleri kontrol et
+            start_dt = datetime.strptime(start_str, '%d/%m/%Y')
+            end_dt = datetime.strptime(end_str, '%d/%m/%Y')
+            
+            # Eğer başlangıç tarihi bitiş tarihinden büyükse, bitiş tarihini bugün yap
+            if start_dt >= end_dt:
+                end_dt = datetime.now()
+                end_str = end_dt.strftime('%d/%m/%Y')
+                self.log(f"Tarih düzeltmesi yapıldı: {start_str} -> {end_str}")
             
             # Investing.com'dan veri çek
             df = investpy.get_currency_cross_historical_data(
@@ -120,7 +133,7 @@ class ForexCollector:
             inv_error = str(e)
             if "currency_cross" in inv_error.lower():
                 inv_error = inv_error.replace(symbol.lower(), symbol_upper)
-            self.log(f"yf: {yf_symbol}   inv:{symbol_upper} denendi -> Veri alınamadı (yfinance: {yf_error}, investing: {inv_error})")
+            self.log(f"yf: {yf_symbol}   inv:{symbol_upper} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}\ninvesting hata mesajı: {inv_error}")
             
         # Her iki kaynaktan da veri alınamadıysa
         self._update_data_status(symbol, False)
