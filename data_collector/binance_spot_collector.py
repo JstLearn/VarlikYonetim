@@ -14,6 +14,11 @@ class BinanceSpotCollector:
         self.client = Client("", "")  # API key olmadan çalışır
         self.baslangic_tarihi = datetime.strptime(COLLECTION_CONFIG['start_date'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
         
+    def log(self, message):
+        """Zaman damgalı log mesajı yazdırır"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        print(f"[{timestamp}] {message}")
+        
     def get_active_pairs(self):
         """Aktif Binance Spot paritelerini getirir"""
         try:
@@ -37,12 +42,12 @@ class BinanceSpotCollector:
                 })
             
             if pairs:
-                print(f"Toplam {len(pairs)} Spot çifti işlenecek")
+                self.log(f"Toplam {len(pairs)} Spot çifti işlenecek")
                 
             return pairs
             
         except Exception as e:
-            print(f"Hata: Spot pariteleri alınamadı - {str(e)}")
+            self.log(f"Hata: Spot pariteleri alınamadı - {str(e)}")
             return []
             
     def collect_data(self, symbol, start_date, end_date=None):
@@ -65,7 +70,8 @@ class BinanceSpotCollector:
             )
             
             if not klines:
-                print(f"{symbol} -> Binance Spot'da veri bulunamadı")
+                binance_error = "Veri bulunamadı"
+                self.log(f"binance: {formatted_symbol} denendi -> Veri alınamadı\nbinance hata mesajı: {binance_error}")
                 self._update_data_status(symbol, False)
                 return pd.DataFrame()
             
@@ -93,8 +99,8 @@ class BinanceSpotCollector:
             return df
             
         except Exception as e:
-            print(f"{symbol} -> Binance Spot hatası: {str(e)}")
-            # Hata durumunda veri_var'ı 0 yap
+            binance_error = str(e)
+            self.log(f"binance: {formatted_symbol} denendi -> Veri alınamadı\nbinance hata mesajı: {binance_error}")
             self._update_data_status(symbol, False)
             return pd.DataFrame()
             
@@ -115,7 +121,7 @@ class BinanceSpotCollector:
             conn.commit()
             
         except Exception as e:
-            print(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
+            self.log(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
             if conn:
                 conn.rollback()
                 
@@ -153,29 +159,29 @@ class BinanceSpotCollector:
                     kayit_sayisi += 1
                     
                 except Exception as e:
-                    print(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
                     continue
                     
             conn.commit()
             
             if kayit_sayisi > 0:
-                print(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
+                self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 
             return True
             
         except Exception as e:
-            print(f"Veri kaydetme hatası ({symbol}): {str(e)}")
+            self.log(f"Veri kaydetme hatası ({symbol}): {str(e)}")
             return False
             
     def run(self):
         """Tüm Spot verilerini toplar"""
-        print("\n" + "="*50)
-        print("BINANCE SPOT VERİLERİ TOPLANIYOR")
-        print("="*50)
+        self.log("="*50)
+        self.log("BINANCE SPOT VERİLERİ TOPLANIYOR")
+        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
-            print("İşlenecek Spot verisi yok")
+            self.log("İşlenecek Spot verisi yok")
             return
             
         for pair in pairs:
@@ -219,5 +225,5 @@ class BinanceSpotCollector:
                         continue
                 
             except Exception as e:
-                print(f"İşlem hatası ({symbol}): {str(e)}")
+                self.log(f"İşlem hatası ({symbol}): {str(e)}")
                 continue 

@@ -13,6 +13,11 @@ class ForexCollector:
         self.db = Database()
         self.baslangic_tarihi = datetime.strptime(COLLECTION_CONFIG['start_date'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
         
+    def log(self, message):
+        """Zaman damgalı log mesajı yazdırır"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        print(f"[{timestamp}] {message}")
+        
     def get_active_pairs(self):
         """Aktif Forex paritelerini getirir"""
         try:
@@ -34,62 +39,92 @@ class ForexCollector:
                     'exchange': row[1],
                     'ulke': row[3]
                 })
-                print(f"Parite: {row[0]}, Borsa: {row[1]}, Güncel: {'Evet' if row[2] else 'Hayır'}")
+            
+            if pairs:
+                self.log(f"Toplam {len(pairs)} Forex çifti işlenecek")
                 
             return pairs
             
         except Exception as e:
-            print(f"Hata: Forex pariteleri alınamadı - {str(e)}")
+            self.log(f"Hata: Forex pariteleri alınamadı - {str(e)}")
             return []
             
     def collect_data(self, symbol, start_date, end_date=None):
-        """Forex verilerini yfinance'den toplar"""
+        """Forex verilerini toplar"""
+        yf_error = None
+        # Önce yfinance'den dene
         try:
-            # Sembol formatını düzelt (EUR/USD -> EURUSD=X)
-            formatted_symbol = f"{symbol.replace('/', '')}=X"
+            # Yahoo Finance formatına çevir (EUR/USD -> EURUSD=X)
+            yf_symbol = symbol.replace('/', '') + "=X"
             
-            # yfinance'den veri çek
-            ticker = yf.Ticker(formatted_symbol)
-            df = ticker.history(
+            # Tüm uyarıları bastır
+            import warnings, sys, io
+            warnings.filterwarnings('ignore')
+            
+            # yfinance hata mesajlarını yakala
+            stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            
+            # Veriyi çek
+            df = yf.download(
+                tickers=yf_symbol,
                 start=start_date,
                 end=end_date or datetime.now(timezone.utc),
-                interval='1d'
+                interval='1d',
+                progress=False
             )
             
-            if df.empty:
-                print(f"{symbol} -> yfinance'de veri bulunamadı")
-                self._update_data_status(symbol, False)
-                return pd.DataFrame()
+            # Hata mesajını al
+            error_output = sys.stderr.getvalue()
+            sys.stderr = stderr
             
-            # DataFrame'i düzenle
-            df = df.rename(columns={
-                'Open': 'open',
-                'High': 'high',
-                'Low': 'low',
-                'Close': 'close',
-                'Volume': 'volume'
-            })
+            if "1 Failed download" in error_output:
+                yf_error = error_output.split(']:')[1].strip()
+                df = None
             
-            # Gerekli kolonları kontrol et
-            required_columns = ['open', 'high', 'low', 'close']
-            if not all(col in df.columns for col in required_columns):
-                return pd.DataFrame()
-            
-            if 'volume' not in df.columns:
-                df['volume'] = 0
-            
-            if df[required_columns].isnull().any().any():
-                return pd.DataFrame()
-            
-            # Veri durumunu güncelle
-            self._update_data_status(symbol, True)
-            
-            return df
-            
+            if df is not None and not df.empty:
+                self._update_data_status(symbol, True)
+                return df
+                
         except Exception as e:
-            print(f"{symbol} -> yfinance hatası: {str(e)}")
-            self._update_data_status(symbol, False)
-            return pd.DataFrame()
+            if not yf_error:
+                yf_error = str(e)
+            
+        # yfinance'den alınamadıysa investing.com'dan dene
+        try:
+            import investpy
+            
+            # Para birimlerini ayır ve büyük harfe çevir
+            symbol_upper = symbol.upper()
+            base, quote = symbol_upper.split('/')
+            
+            # Tarih formatını ayarla
+            start_str = start_date.strftime('%d/%m/%Y')
+            end_str = (end_date or datetime.now()).strftime('%d/%m/%Y')
+            
+            # Investing.com'dan veri çek
+            df = investpy.get_currency_cross_historical_data(
+                currency_cross=f'{base}/{quote}',
+                from_date=start_str,
+                to_date=end_str
+            )
+            
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                # Tarihi index yap
+                df.index = pd.to_datetime(df.index)
+                
+                self._update_data_status(symbol, True)
+                return df
+                
+        except Exception as e:
+            inv_error = str(e)
+            if "currency_cross" in inv_error.lower():
+                inv_error = inv_error.replace(symbol.lower(), symbol_upper)
+            self.log(f"yf: {yf_symbol}   inv:{symbol_upper} denendi -> Veri alınamadı (yfinance: {yf_error}, investing: {inv_error})")
+            
+        # Her iki kaynaktan da veri alınamadıysa
+        self._update_data_status(symbol, False)
+        return pd.DataFrame()
             
     def _update_data_status(self, symbol, has_data):
         """Parite için veri durumunu günceller"""
@@ -108,7 +143,7 @@ class ForexCollector:
             conn.commit()
             
         except Exception as e:
-            print(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
+            self.log(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
             if conn:
                 conn.rollback()
                 
@@ -117,16 +152,17 @@ class ForexCollector:
         # Parite çiftini ayır (örn: EUR/USD -> ['EUR', 'USD'])
         base, quote = symbol.split('/')
         
-        if quote == 'USD':
+        if quote == 'USD':  # Direkt USD karşılığı
             return fiyat
             
         try:
-            # Quote'un dolar kurunu bul
             conn = self.db.connect()
             if not conn:
                 return None
                 
             cursor = conn.cursor()
+            
+            # Önce QUOTE/USD formatında ara
             cursor.execute("""
                 SELECT TOP 1 fiyat
                 FROM [VARLIK_YONETIM].[dbo].[kurlar]
@@ -138,8 +174,22 @@ class ForexCollector:
             if row:
                 quote_usd = float(row[0])
                 return fiyat * quote_usd
-        except:
-            pass
+                
+            # Bulunamazsa USD/QUOTE formatında ara ve tersini al
+            cursor.execute("""
+                SELECT TOP 1 fiyat
+                FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                WHERE parite = ? AND borsa = 'FOREX'
+                ORDER BY tarih DESC
+            """, (f"USD/{quote}",))
+            
+            row = cursor.fetchone()
+            if row:
+                quote_usd = float(row[0])
+                return fiyat * (1 / quote_usd)
+                
+        except Exception as e:
+            self.log(f"Dolar karşılığı hesaplama hatası ({symbol}): {str(e)}")
             
         return None
 
@@ -158,11 +208,11 @@ class ForexCollector:
             
             for tarih, row in df.iterrows():
                 try:
-                    fiyat = float(row['close'])
+                    fiyat = float(row['Close'])
                     dolar_karsiligi = self.get_dolar_karsiligi(symbol, fiyat)
                     
                     if dolar_karsiligi is None:
-                        print(f"Dolar karşılığı hesaplanamadı: {symbol}")
+                        self.log(f"Dolar karşılığı hesaplanamadı: {symbol}")
                         continue
                         
                     cursor.execute("""
@@ -180,33 +230,31 @@ class ForexCollector:
                     kayit_sayisi += 1
                     
                 except Exception as e:
-                    print(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
                     continue
                     
             conn.commit()
             
             if kayit_sayisi > 0:
-                print(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
+                self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 
             return True
             
         except Exception as e:
-            print(f"Veri kaydetme hatası ({symbol}): {str(e)}")
+            self.log(f"Veri kaydetme hatası ({symbol}): {str(e)}")
             return False
             
     def run(self):
         """Tüm Forex verilerini toplar"""
-        print("\n" + "="*50)
-        print("FOREX VERİLERİ TOPLANIYOR")
-        print("="*50)
+        self.log("="*50)
+        self.log("FOREX VERİLERİ TOPLANIYOR")
+        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
-            print("İşlenecek Forex verisi yok")
+            self.log("İşlenecek Forex verisi yok")
             return
             
-        print(f"Toplam {len(pairs)} Forex çifti işlenecek")
-        
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
@@ -246,8 +294,8 @@ class ForexCollector:
                         if not veriler.empty:
                             self.save_candles(symbol, veriler, ulke)
                     else:
-                        print(f"{symbol} -> Güncel")
+                        continue
                 
             except Exception as e:
-                print(f"İşlem hatası ({symbol}): {str(e)}")
+                self.log(f"İşlem hatası ({symbol}): {str(e)}")
                 continue 

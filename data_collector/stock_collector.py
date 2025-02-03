@@ -13,6 +13,11 @@ class StockCollector:
         self.db = Database()
         self.baslangic_tarihi = datetime.strptime(COLLECTION_CONFIG['start_date'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
         
+    def log(self, message):
+        """Zaman damgalı log mesajı yazdırır"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        print(f"[{timestamp}] {message}")
+        
     def get_active_pairs(self):
         """Aktif hisse senedi paritelerini getirir"""
         try:
@@ -34,12 +39,12 @@ class StockCollector:
                     'exchange': row[1],
                     'ulke': row[3]
                 })
-                print(f"Parite: {row[0]}, Borsa: {row[1]}, Güncel: {'Evet' if row[2] else 'Hayır'}")
+                self.log(f"Parite: {row[0]}, Borsa: {row[1]}, Güncel: {'Evet' if row[2] else 'Hayır'}")
                 
             return pairs
             
         except Exception as e:
-            print(f"Hata: Hisse senedi pariteleri alınamadı - {str(e)}")
+            self.log(f"Hata: Hisse senedi pariteleri alınamadı - {str(e)}")
             return []
             
     def collect_data(self, symbol, start_date, end_date=None):
@@ -54,7 +59,8 @@ class StockCollector:
             )
             
             if df.empty:
-                print(f"{symbol} -> yfinance'de veri bulunamadı")
+                yf_error = "Veri bulunamadı"
+                self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
                 self._update_data_status(symbol, False)
                 return pd.DataFrame()
             
@@ -70,12 +76,18 @@ class StockCollector:
             # Gerekli kolonları kontrol et
             required_columns = ['open', 'high', 'low', 'close']
             if not all(col in df.columns for col in required_columns):
+                yf_error = "Gerekli kolonlar eksik"
+                self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
+                self._update_data_status(symbol, False)
                 return pd.DataFrame()
             
             if 'volume' not in df.columns:
                 df['volume'] = 0
             
             if df[required_columns].isnull().any().any():
+                yf_error = "Eksik değerler var"
+                self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
+                self._update_data_status(symbol, False)
                 return pd.DataFrame()
             
             # Veri durumunu güncelle
@@ -84,7 +96,8 @@ class StockCollector:
             return df
             
         except Exception as e:
-            print(f"{symbol} -> yfinance hatası: {str(e)}")
+            yf_error = str(e)
+            self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
             self._update_data_status(symbol, False)
             return pd.DataFrame()
             
@@ -105,7 +118,7 @@ class StockCollector:
             conn.commit()
             
         except Exception as e:
-            print(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
+            self.log(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
             if conn:
                 conn.rollback()
                 
@@ -170,7 +183,7 @@ class StockCollector:
                     dolar_karsiligi = self.get_dolar_karsiligi(symbol, fiyat, ulke)
                     
                     if dolar_karsiligi is None:
-                        print(f"Dolar karşılığı hesaplanamadı: {symbol}")
+                        self.log(f"Dolar karşılığı hesaplanamadı: {symbol}")
                         continue
                         
                     cursor.execute("""
@@ -188,32 +201,32 @@ class StockCollector:
                     kayit_sayisi += 1
                     
                 except Exception as e:
-                    print(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
                     continue
                     
             conn.commit()
             
             if kayit_sayisi > 0:
-                print(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
+                self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 
             return True
             
         except Exception as e:
-            print(f"Veri kaydetme hatası ({symbol}): {str(e)}")
+            self.log(f"Veri kaydetme hatası ({symbol}): {str(e)}")
             return False
             
     def run(self):
         """Tüm hisse senedi verilerini toplar"""
-        print("\n" + "="*50)
-        print("HİSSE SENEDİ VERİLERİ TOPLANIYOR")
-        print("="*50)
+        self.log("="*50)
+        self.log("HİSSE SENEDİ VERİLERİ TOPLANIYOR")
+        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
-            print("İşlenecek hisse senedi verisi yok")
+            self.log("İşlenecek hisse senedi verisi yok")
             return
             
-        print(f"Toplam {len(pairs)} hisse senedi işlenecek")
+        self.log(f"Toplam {len(pairs)} hisse senedi işlenecek")
         
         for pair in pairs:
             symbol = pair['symbol']
@@ -254,8 +267,8 @@ class StockCollector:
                         if not veriler.empty:
                             self.save_candles(symbol, veriler, ulke)
                     else:
-                        print(f"{symbol} -> Güncel")
+                        continue
                 
             except Exception as e:
-                print(f"İşlem hatası ({symbol}): {str(e)}")
+                self.log(f"İşlem hatası ({symbol}): {str(e)}")
                 continue 

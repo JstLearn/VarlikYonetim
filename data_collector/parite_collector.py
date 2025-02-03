@@ -21,16 +21,21 @@ from bs4 import BeautifulSoup, Tag
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(env_path)
 
+def log(message):
+    """Zaman damgalı log mesajı yazdırır"""
+    timestamp = datetime.now().strftime('%H:%M:%S')
+    print(f"[{timestamp}] {message}")
+
 def check_sql_driver():
     """SQL Server sürücülerini kontrol eder"""
     try:
         drivers = [x for x in pyodbc.drivers() if x.startswith('SQL Server')]
         if not drivers:
-            print("SQL Server sürücüsü bulunamadı!")
+            log("SQL Server sürücüsü bulunamadı!")
             return False
         return True
     except Exception as e:
-        print(f"Sürücü kontrolü sırasında hata: {str(e)}")
+        log(f"Sürücü kontrolü sırasında hata: {str(e)}")
         return False
 
 def check_db_config():
@@ -39,10 +44,10 @@ def check_db_config():
     missing_keys = [key for key in required_keys if not DB_CONFIG.get(key)]
     
     if missing_keys:
-        print(f"Eksik veritabanı konfigürasyonu: {missing_keys}")
+        log(f"Eksik veritabanı konfigürasyonu: {missing_keys}")
         return False
         
-    print("Veritabanı konfigürasyonu tamam")
+    log("Veritabanı konfigürasyonu tamam")
     return True
 
 def get_binance_pariteler():
@@ -83,7 +88,7 @@ def get_binance_pariteler():
         return all_pariteler
         
     except Exception as e:
-        print(f"Binance veri alma hatası: {str(e)}")
+        log(f"Binance veri alma hatası: {str(e)}")
         return []
 
 def get_country_currency(country_name):
@@ -121,7 +126,7 @@ def get_country_currency(country_name):
         return defaults.get(country_name.lower(), 'USD')
         
     except Exception as e:
-        print(f"Para birimi alınamadı ({country_name}): {str(e)}")
+        log(f"Para birimi alınamadı ({country_name}): {str(e)}")
         return 'USD'  # Hata durumunda USD kullan
 
 def get_stocks():
@@ -139,7 +144,6 @@ def get_stocks():
                     continue
                 
                 currency = get_country_currency(country)
-                print(f"{country}: {len(stocks)} hisse bulundu ({currency})", end=" -> ")
                 
                 country_stocks = []
                 for _, stock in stocks.iterrows():
@@ -154,17 +158,17 @@ def get_stocks():
                     country_stocks.append(stock_info)
                 
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(country_stocks)
-                print(f"{eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+                log(f"{country}: {len(stocks)} hisse bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
                 toplam_eklenen += eklenen
             except Exception as e:
-                print(f"{country} hatası: {str(e)}")
+                log(f"{country} hatası: {str(e)}")
                 continue
         
         
         return []
         
     except Exception as e:
-        print(f"Hata: {str(e)}")
+        log(f"Hata: {str(e)}")
         return []
 
 def get_forex_pariteler():
@@ -175,7 +179,7 @@ def get_forex_pariteler():
         currency_list = fetch_currency_list()
         fetched_codes = list({code for _, code in currency_list})
     except Exception as e:
-        print(f"Para birimi listesi alınamadı: {str(e)}")
+        log(f"Para birimi listesi alınamadı: {str(e)}")
         return []
 
     forex_pariteler = []
@@ -230,7 +234,6 @@ def get_indices():
                     continue
                 
                 currency = get_country_currency(country)
-                print(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency})", end=" -> ")
                 
                 country_indices = []
                 for _, index in indices.iterrows():
@@ -245,21 +248,21 @@ def get_indices():
                     country_indices.append(index_info)
                 
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(country_indices)
-                print(f"{eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+                log(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
                 toplam_eklenen += eklenen
             except Exception as e:
                 error_msg = str(e)
                 if "ERR#0034: country" in error_msg and "not found" in error_msg:
                     continue
                 else:
-                    print(f"{country} endeks hatası: {error_msg}")
+                    log(f"{country} endeks hatası: {error_msg}")
                 continue
         
         
         return []
         
     except Exception as e:
-        print(f"Endeks hatası: {str(e)}")
+        log(f"Endeks hatası: {str(e)}")
         return []
 
 def get_commodities():
@@ -269,11 +272,9 @@ def get_commodities():
     try:
         commodities = investpy.get_commodities()
         if len(commodities) == 0:
-            print("Emtia verisi bulunamadı")
+            log("Emtia verisi bulunamadı")
             return []
             
-        print(f"Emtia: {len(commodities)} emtia bulundu", end=" -> ")
-        
         commodity_list = []
         for _, commodity in commodities.iterrows():
             try:
@@ -302,17 +303,17 @@ def get_commodities():
                 commodity_list.append(commodity_info)
                 
             except Exception as e:
-                print(f"Emtia işleme hatası ({commodity.get('name', 'Bilinmeyen')}): {str(e)}")
+                log(f"Emtia işleme hatası ({commodity.get('name', 'Bilinmeyen')}): {str(e)}")
                 continue
         
         eklenen, guncellenen, silinen = sync_pariteler_to_db(commodity_list)
-        print(f"{eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+        log(f"Emtia: {len(commodities)} emtia bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
         
         
         return commodity_list
         
     except Exception as e:
-        print(f"Emtia verisi alınamadı: {str(e)}")
+        log(f"Emtia verisi alınamadı: {str(e)}")
         return []
 
 def get_all_pariteler():
@@ -366,7 +367,7 @@ def get_all_pariteler():
         return all_pariteler
         
     except Exception as e:
-        print(f"Parite veri alma hatası: {str(e)}")
+        log(f"Parite veri alma hatası: {str(e)}")
         return []
 
 def sync_pariteler_to_db(yeni_pariteler):
@@ -429,7 +430,7 @@ def sync_pariteler_to_db(yeni_pariteler):
                     eklenen += 1
                 
             except Exception as e:
-                print(f"Hata: {parite['parite']} - {str(e)}")
+                log(f"Hata: {parite['parite']} - {str(e)}")
                 continue
         
         # Sadece aynı borsadaki kullanılmayan pariteleri sil
@@ -459,23 +460,21 @@ def run_continuous():
     if not check_sql_driver() or not check_db_config():
         return
     
-    print("Parite izleme başladı...")
+    log("Parite izleme başladı...")
     
     while True:
         try:
             # 1. Binance pariteleri
             binance_pariteler = get_binance_pariteler()
             if binance_pariteler:
-                print(f"Binance: {len(binance_pariteler)} parite bulundu", end=" -> ")
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(binance_pariteler)
-                print(f"{eklenen} yeni parite, {guncellenen} güncellenen parite, {silinen} silinen parite")
+                log(f"Binance: {len(binance_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
             
             # 2. Forex pariteleri
             forex_pariteler = get_forex_pariteler()
             if forex_pariteler:
-                print(f"Forex: {len(forex_pariteler)} parite bulundu", end=" -> ")
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(forex_pariteler)
-                print(f"{eklenen} yeni parite, {guncellenen} güncellenen parite, {silinen} silinen parite")
+                log(f"Forex: {len(forex_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
             
             # 3. Emtialar (Forex'ten hemen sonra)
             get_commodities()  # Direkt işlem yapacak
@@ -487,10 +486,10 @@ def run_continuous():
             get_stocks()  # Direkt işlem yapacak
                         
         except KeyboardInterrupt:
-            print("\nProgram kullanıcı tarafından durduruldu")
+            log("\nProgram kullanıcı tarafından durduruldu")
             break
         except Exception as e:
-            print(f"İşlem hatası: {str(e)}")
+            log(f"İşlem hatası: {str(e)}")
 
 def fetch_currency_list():
     """ISO 4217 para birimleri listesini Wikipedia'dan çeker."""
@@ -502,7 +501,7 @@ def fetch_currency_list():
     # Ana para birimleri tablosunu bul (ilk büyük tablo)
     tables = soup.find_all('table', {'class': 'wikitable'})
     if not tables:
-        print("Para birimi tablosu bulunamadı.")
+        log("Para birimi tablosu bulunamadı.")
         return currencies
         
     # İlk tablo aktif para birimlerini içerir

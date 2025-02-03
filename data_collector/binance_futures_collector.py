@@ -11,8 +11,13 @@ from config import COLLECTION_CONFIG
 class BinanceFuturesCollector:
     def __init__(self):
         self.db = Database()
-        self.client = Client("", "")  # API key olmadan çalışır
+        self.client = Client(None, None)  # API key olmadan da çalışır
         self.baslangic_tarihi = datetime.strptime(COLLECTION_CONFIG['start_date'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+        
+    def log(self, message):
+        """Zaman damgalı log mesajı yazdırır"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        print(f"[{timestamp}] {message}")
         
     def get_active_pairs(self):
         """Aktif Binance Futures paritelerini getirir"""
@@ -37,12 +42,12 @@ class BinanceFuturesCollector:
                 })
             
             if pairs:
-                print(f"Toplam {len(pairs)} Futures çifti işlenecek")
+                self.log(f"Toplam {len(pairs)} Futures çifti işlenecek")
                 
             return pairs
             
         except Exception as e:
-            print(f"Hata: Futures pariteleri alınamadı - {str(e)}")
+            self.log(f"Hata: Futures pariteleri alınamadı - {str(e)}")
             return []
             
     def collect_data(self, symbol, start_date, end_date=None):
@@ -65,7 +70,8 @@ class BinanceFuturesCollector:
             )
             
             if not klines:
-                print(f"{symbol} -> Binance Futures'da veri bulunamadı")
+                binance_error = "Veri bulunamadı"
+                self.log(f"binance: {formatted_symbol} denendi -> Veri alınamadı\nbinance hata mesajı: {binance_error}")
                 self._update_data_status(symbol, False)
                 return pd.DataFrame()
             
@@ -93,8 +99,8 @@ class BinanceFuturesCollector:
             return df
             
         except Exception as e:
-            print(f"{symbol} -> Binance Futures hatası: {str(e)}")
-            # Hata durumunda veri_var'ı 0 yap
+            binance_error = str(e)
+            self.log(f"binance: {formatted_symbol} denendi -> Veri alınamadı\nbinance hata mesajı: {binance_error}")
             self._update_data_status(symbol, False)
             return pd.DataFrame()
             
@@ -115,7 +121,7 @@ class BinanceFuturesCollector:
             conn.commit()
             
         except Exception as e:
-            print(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
+            self.log(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
             if conn:
                 conn.rollback()
                 
@@ -153,29 +159,29 @@ class BinanceFuturesCollector:
                     kayit_sayisi += 1
                     
                 except Exception as e:
-                    print(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
                     continue
                     
             conn.commit()
             
             if kayit_sayisi > 0:
-                print(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
+                self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 
             return True
             
         except Exception as e:
-            print(f"Veri kaydetme hatası ({symbol}): {str(e)}")
+            self.log(f"Veri kaydetme hatası ({symbol}): {str(e)}")
             return False
             
     def run(self):
         """Tüm Futures verilerini toplar"""
-        print("\n" + "="*50)
-        print("BINANCE FUTURES VERİLERİ TOPLANIYOR")
-        print("="*50)
+        self.log("="*50)
+        self.log("BINANCE FUTURES VERİLERİ TOPLANIYOR")
+        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
-            print("İşlenecek Futures verisi yok")
+            self.log("İşlenecek Futures verisi yok")
             return
             
         for pair in pairs:
@@ -219,5 +225,5 @@ class BinanceFuturesCollector:
                         continue
                 
             except Exception as e:
-                print(f"İşlem hatası ({symbol}): {str(e)}")
+                self.log(f"İşlem hatası ({symbol}): {str(e)}")
                 continue 
