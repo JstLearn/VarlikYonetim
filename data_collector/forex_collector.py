@@ -116,6 +116,7 @@ class ForexCollector:
         # yfinance'den alınamadıysa investing.com'dan dene
         try:
             import investpy
+            import time
             
             # Para birimlerini ayır ve büyük harfe çevir
             symbol_upper = symbol.upper()
@@ -136,27 +137,72 @@ class ForexCollector:
             start_str = start_date.strftime('%d/%m/%Y')
             end_str = end_date.strftime('%d/%m/%Y')
             
-            # Investing.com'dan veri çek
-            df = investpy.get_currency_cross_historical_data(
-                currency_cross=f'{base}/{quote}',
-                from_date=start_str,
-                to_date=end_str
-            )
+            max_retries = 3
+            retry_delay = 5  # saniye
             
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                # Tarihi index yap
-                df.index = pd.to_datetime(df.index)
-                return df, True
+            for retry in range(max_retries):
+                try:
+                    # Investing.com'dan veri çek
+                    df = investpy.get_currency_cross_historical_data(
+                        currency_cross=f'{base}/{quote}',
+                        from_date=start_str,
+                        to_date=end_str
+                    )
+                    
+                    if isinstance(df, pd.DataFrame) and not df.empty:
+                        return df, True
+                        
+                except Exception as retry_error:
+                    if "ERR#0015" in str(retry_error) and retry < max_retries - 1:
+                        # Rate limit hatası, bekle ve tekrar dene
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Her denemede bekleme süresini 2 katına çıkar
+                        continue
+                    raise  # Diğer hataları veya son denemeyi yukarı fırlat
                 
         except Exception as e:
             inv_error = str(e)
             if "currency_cross" in inv_error.lower():
-                inv_error = inv_error.replace(symbol.lower(), symbol_upper)
-            self.log(f"yf: {yf_symbol}   inv:{symbol} denendi -> Veri alınamadı")
-            self.log(f"yfinance hata mesajı: {yf_error}")
-            self.log(f"investing hata mesajı: {inv_error}")
+                # Bilinen hata, log basma
+                pass
+            elif "YFTzMissingError" in str(yf_error):
+                # Bilinen hata, log basma
+                pass
+            elif "ERR#0015" in inv_error:
+                # Rate limit hatası, log basma
+                pass
+            else:
+                # Beklenmeyen hata, log bas
+                self.log(f"yf: {yf_symbol}   inv:{symbol} denendi -> Veri alınamadı")
+                self.log(f"yfinance hata mesajı: {yf_error}")
+                self.log(f"investing hata mesajı: {inv_error}")
             
         # Her iki kaynaktan da veri alınamadıysa
+        conn = None
+        try:
+            conn = self.db.connect()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = 0
+                    WHERE parite = ?
+                """, (symbol,))
+                conn.commit()
+        except Exception as e:
+            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+                    
         return pd.DataFrame(), False
             
     def _update_data_status(self, symbol, has_data):
@@ -260,56 +306,62 @@ class ForexCollector:
                     fiyat = float(row['Close'])
                     dolar_karsiligi = self.get_dolar_karsiligi(symbol, fiyat)
                     
-                    if dolar_karsiligi is None:
-                        self.log(f"Dolar karşılığı hesaplanamadı: {symbol}")
-                        continue
-                        
+                    # Önce kaydın var olup olmadığını kontrol et
                     cursor.execute("""
-                        IF NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] 
-                            WHERE parite = ? AND [interval] = ? AND tarih = ?
-                        )
-                        INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
-                            parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, 
-                    (symbol, '1d', tarih, 
-                     symbol, '1d', tarih, fiyat, dolar_karsiligi, 'FOREX', 'SPOT', ulke))
+                        SELECT COUNT(*) as count
+                        FROM [VARLIK_YONETIM].[dbo].[kurlar] 
+                        WHERE parite = ? AND [interval] = ? AND tarih = ?
+                    """, (symbol, '1d', tarih))
                     
-                    kayit_sayisi += 1
+                    row = cursor.fetchone()
+                    count = row[0] if row else 0
+                    
+                    if count == 0:  # Kayıt yoksa ekle
+                        cursor.execute("""
+                            INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
+                                parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, 
+                        (symbol, '1d', tarih, fiyat, dolar_karsiligi, 'FOREX', 'SPOT', ulke))
+                        kayit_sayisi += 1
                     
                 except Exception as e:
-                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"SQL Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"Hata detayı: {e.__class__.__name__}: {str(e)}")
+                    self.log(f"Değerler: parite={symbol}, interval=1d, tarih={tarih}, fiyat={fiyat}, dolar={dolar_karsiligi}, borsa=FOREX, tip=SPOT, ulke={ulke}")
                     continue
                     
             conn.commit()
             
             if kayit_sayisi > 0:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
+                # Veri başarıyla kaydedildi, veri_var'ı 1 yap
+                cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = 1
+                    WHERE parite = ?
+                """, (symbol,))
+                conn.commit()
                 
             return True
             
         except Exception as e:
-            self.log(f"Veri kaydetme hatası ({symbol}): {str(e)}")
+            self.log(f"Veritabanı hatası ({symbol}): {str(e)}")
+            self.log(f"Hata detayı: {e.__class__.__name__}: {str(e)}")
             return False
             
     def run(self):
         """Tüm Forex verilerini toplar"""
         self.log("="*50)
-        self.log("FOREX VERİLERİ TOPLANIYOR")
-        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
             self.log("İşlenecek Forex verisi yok")
-            return
-            
-        self.log(f"Toplam {len(pairs)} Forex çifti işlenecek")
+            return           
         
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
-            conn = None
             
             try:
                 # Son kayıt tarihini kontrol et
@@ -326,6 +378,10 @@ class ForexCollector:
                 
                 row = cursor.fetchone()
                 son_tarih = row[0] if row and row[0] else None
+                
+                # Bağlantıyı kapat
+                cursor.close()
+                conn.close()
                 
                 # Bugünün tarihini al
                 simdi = datetime.now()
@@ -352,20 +408,6 @@ class ForexCollector:
                     else:
                         continue
                 
-                # Her parite işlendikten sonra commit yap
-                conn.commit()
-                
             except Exception as e:
                 self.log(f"İşlem hatası ({symbol}): {str(e)}")
-                if conn:
-                    try:
-                        conn.rollback()
-                    except:
-                        pass
-                continue
-            finally:
-                if conn:
-                    try:
-                        conn.close()
-                    except:
-                        pass 
+                continue 

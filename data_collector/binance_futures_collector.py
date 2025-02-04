@@ -195,8 +195,6 @@ class BinanceFuturesCollector:
     def run(self):
         """Tüm Futures verilerini toplar"""
         self.log("="*50)
-        self.log("BINANCE FUTURES VERİLERİ TOPLANIYOR")
-        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:

@@ -195,8 +195,6 @@ class BinanceSpotCollector:
     def run(self):
         """Tüm Spot verilerini toplar"""
         self.log("="*50)
-        self.log("BINANCE SPOT VERİLERİ TOPLANIYOR")
-        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
