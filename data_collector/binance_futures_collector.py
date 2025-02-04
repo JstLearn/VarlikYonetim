@@ -105,23 +105,42 @@ class BinanceFuturesCollector:
             return pd.DataFrame()
             
     def _update_data_status(self, symbol, has_data):
-        """Parite için veri durumunu günceller"""
+        """Binance Futures için veri durumunu günceller"""
         try:
             conn = self.db.connect()
             if not conn:
+                self.log(f"{symbol} için veritabanı bağlantısı kurulamadı (veri_var güncellemesi)")
                 return
                 
             cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                SET veri_var = ?
-                WHERE parite = ?
-            """, (1 if has_data else 0, symbol))
             
-            conn.commit()
+            # Önce mevcut durumu kontrol et
+            cursor.execute("""
+                SELECT veri_var 
+                FROM [VARLIK_YONETIM].[dbo].[pariteler]
+                WHERE parite = ?
+            """, (symbol,))
+            
+            row = cursor.fetchone()
+            if row:
+                mevcut_durum = row[0]
+                yeni_durum = 1 if has_data else 0
+                
+                if mevcut_durum != yeni_durum:
+                    # Sadece değişiklik varsa güncelle
+                    cursor.execute("""
+                        UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                        SET veri_var = ?
+                        WHERE parite = ?
+                    """, (yeni_durum, symbol))
+                    
+                    conn.commit()
+                    self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi (önceki değer: {mevcut_durum})")
+            else:
+                self.log(f"{symbol} futures çifti veritabanında bulunamadı")
             
         except Exception as e:
-            self.log(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
+            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
             if conn:
                 conn.rollback()
                 

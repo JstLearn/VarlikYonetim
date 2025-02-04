@@ -29,7 +29,9 @@ class StockCollector:
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel, ulke 
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] 
-                WHERE tip = 'STOCK' AND aktif = 1
+                WHERE tip = 'STOCK' 
+                AND aktif = 1 
+                AND (veri_var = 1 OR veri_var IS NULL)
             """)
             
             pairs = []
@@ -50,20 +52,44 @@ class StockCollector:
     def collect_data(self, symbol, start_date, end_date=None):
         """Hisse senedi verilerini yfinance'den toplar"""
         try:
+            # Tarihleri string formatına çevir
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = (end_date or datetime.now(timezone.utc)).strftime('%Y-%m-%d')
+            
+            # Tüm uyarıları bastır
+            import warnings, sys, io
+            warnings.filterwarnings('ignore')
+            
+            # yfinance hata mesajlarını yakala
+            stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            
             # yfinance'den veri çek
-            ticker = yf.Ticker(symbol)
-            df = ticker.history(
-                start=start_date,
-                end=end_date or datetime.now(timezone.utc),
+            df = yf.download(
+                tickers=symbol,
+                start=start_str,
+                end=end_str,
                 interval='1d',
-                ignore_tz=True  # Zaman dilimi hatalarını önle
+                progress=False,
+                auto_adjust=True,
+                prepost=False,
+                threads=False
             )
             
-            if df.empty:
-                yf_error = "Veri bulunamadı"
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
-                self._update_data_status(symbol, False)
-                return pd.DataFrame()
+            # Hata mesajını al
+            error_output = sys.stderr.getvalue()
+            sys.stderr = stderr
+            
+            if "1 Failed download" in error_output:
+                error_msg = error_output.split(']:')[1].strip() if ']:' in error_output else error_output
+                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
+                self.log(f"yfinance hata mesajı: {error_msg}")
+                return pd.DataFrame(), False
+            
+            if df is None or df.empty:
+                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
+                self.log("yfinance hata mesajı: Veri bulunamadı")
+                return pd.DataFrame(), False
             
             # DataFrame'i düzenle
             df = df.rename(columns={
@@ -77,52 +103,62 @@ class StockCollector:
             # Gerekli kolonları kontrol et
             required_columns = ['open', 'high', 'low', 'close']
             if not all(col in df.columns for col in required_columns):
-                yf_error = "Gerekli kolonlar eksik"
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
-                self._update_data_status(symbol, False)
-                return pd.DataFrame()
+                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
+                self.log("yfinance hata mesajı: Gerekli kolonlar eksik")
+                return pd.DataFrame(), False
             
             if 'volume' not in df.columns:
                 df['volume'] = 0
             
             if df[required_columns].isnull().any().any():
-                yf_error = "Eksik değerler var"
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
-                self._update_data_status(symbol, False)
-                return pd.DataFrame()
+                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
+                self.log("yfinance hata mesajı: Eksik değerler var")
+                return pd.DataFrame(), False
             
-            # Veri durumunu güncelle
-            self._update_data_status(symbol, True)
-            
-            return df
+            return df, True
             
         except Exception as e:
-            yf_error = str(e)
-            self.log(f"yf: {symbol} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}")
-            self._update_data_status(symbol, False)
-            return pd.DataFrame()
+            self.log(f"yf: {symbol} denendi -> Veri alınamadı")
+            self.log(f"yfinance hata mesajı: {str(e)}")
+            return pd.DataFrame(), False
             
     def _update_data_status(self, symbol, has_data):
-        """Parite için veri durumunu günceller"""
+        """Hisse senedi için veri durumunu günceller"""
+        conn = None
         try:
             conn = self.db.connect()
             if not conn:
+                self.log(f"{symbol} için veritabanı bağlantısı kurulamadı (veri_var güncellemesi)")
                 return
                 
             cursor = conn.cursor()
+            
+            # Her durumda güncelle
+            yeni_durum = 1 if has_data else 0
             cursor.execute("""
                 UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
                 SET veri_var = ?
                 WHERE parite = ?
-            """, (1 if has_data else 0, symbol))
+            """, (yeni_durum, symbol))
             
+            # Her zaman commit yap
             conn.commit()
+            self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi")
             
         except Exception as e:
-            self.log(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
+            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
             if conn:
-                conn.rollback()
-                
+                try:
+                    conn.rollback()
+                except:
+                    pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            
     def get_dolar_karsiligi(self, symbol, fiyat, ulke):
         """Hisse senedinin dolar karşılığını hesaplar"""
         if ulke == 'USA':  # Amerikan hisseleri zaten dolar bazında
@@ -232,6 +268,7 @@ class StockCollector:
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
+            conn = None
             
             try:
                 # Son kayıt tarihini kontrol et
@@ -249,10 +286,13 @@ class StockCollector:
                 row = cursor.fetchone()
                 son_tarih = row[0] if row and row[0] else None
                 
+                veriler = None
+                has_data = False
+                
                 if son_tarih is None:
                     # Hiç veri yoksa başlangıç tarihinden itibaren al
-                    veriler = self.collect_data(symbol, self.baslangic_tarihi)
-                    if not veriler.empty:
+                    veriler, has_data = self.collect_data(symbol, self.baslangic_tarihi)
+                    if has_data:
                         self.save_candles(symbol, veriler, ulke)
                 else:
                     # Son tarihten sonraki verileri al
@@ -260,16 +300,38 @@ class StockCollector:
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
                     
                     if son_guncelleme.date() < simdi.date():
-                        veriler = self.collect_data(
+                        veriler, has_data = self.collect_data(
                             symbol,
                             son_guncelleme + timedelta(days=1),
                             simdi
                         )
-                        if not veriler.empty:
+                        if has_data:
                             self.save_candles(symbol, veriler, ulke)
-                    else:
-                        continue
+                
+                # Veri durumunu güncelle
+                cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = ?
+                    WHERE parite = ?
+                """, (1 if has_data else 0, symbol))
+                
+                # Her parite işlendikten sonra commit yap
+                conn.commit()
+                
+                # Log mesajı
+                self.log(f"{symbol} için veri_var = {1 if has_data else 0} olarak güncellendi")
                 
             except Exception as e:
                 self.log(f"İşlem hatası ({symbol}): {str(e)}")
-                continue 
+                if conn:
+                    try:
+                        conn.rollback()
+                    except:
+                        pass
+                continue
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except:
+                        pass 

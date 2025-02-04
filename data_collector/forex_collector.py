@@ -29,7 +29,9 @@ class ForexCollector:
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel, ulke 
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] 
-                WHERE borsa = 'FOREX' AND tip = 'SPOT' AND aktif = 1
+                WHERE borsa = 'FOREX' AND tip = 'SPOT' 
+                AND aktif = 1 
+                AND (veri_var = 1 OR veri_var IS NULL)
             """)
             
             pairs = []
@@ -52,10 +54,29 @@ class ForexCollector:
     def collect_data(self, symbol, start_date, end_date=None):
         """Forex verilerini toplar"""
         yf_error = None
+        
+        # Bugünün tarihini al
+        simdi = datetime.now()
+        
+        # Başlangıç tarihi bugünden büyükse, bugünden 1 gün önceyi kullan
+        if start_date.date() >= simdi.date():
+            start_date = simdi - timedelta(days=1)
+        
+        # Bitiş tarihi yoksa bugünü kullan
+        if end_date is None:
+            end_date = simdi
+        # Bitiş tarihi başlangıç tarihinden küçükse bugünü kullan
+        elif end_date.date() <= start_date.date():
+            end_date = simdi
+            
         # Önce yfinance'den dene
         try:
             # Yahoo Finance formatına çevir (EUR/USD -> EURUSD=X)
             yf_symbol = symbol.replace('/', '') + "=X"
+            
+            # Tarihleri string formatına çevir
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
             
             # Tüm uyarıları bastır
             import warnings, sys, io
@@ -68,8 +89,8 @@ class ForexCollector:
             # Veriyi çek
             df = yf.download(
                 tickers=yf_symbol,
-                start=start_date.strftime('%Y-%m-%d'),  # Tarihi string formatına çevir
-                end=(end_date or datetime.now(timezone.utc)).strftime('%Y-%m-%d'),  # Tarihi string formatına çevir
+                start=start_str,
+                end=end_str,
                 interval='1d',
                 progress=False,
                 auto_adjust=True,  # Otomatik düzeltme yap
@@ -82,12 +103,11 @@ class ForexCollector:
             sys.stderr = stderr
             
             if "1 Failed download" in error_output:
-                yf_error = error_output.split(']:')[1].strip()
+                yf_error = error_output.split(']:')[1].strip() if ']:' in error_output else error_output
                 df = None
             
             if df is not None and not df.empty:
-                self._update_data_status(symbol, True)
-                return df
+                return df, True
                 
         except Exception as e:
             if not yf_error:
@@ -101,19 +121,20 @@ class ForexCollector:
             symbol_upper = symbol.upper()
             base, quote = symbol_upper.split('/')
             
-            # Tarih formatını ayarla
+            # Investing.com için tarihleri ayarla (dd/mm/yyyy formatında)
+            # Başlangıç tarihi bugünden küçük olmalı
+            if start_date.date() >= simdi.date():
+                start_date = simdi - timedelta(days=1)
+            
+            # Bitiş tarihi başlangıç tarihinden büyük olmalı
+            if end_date.date() <= start_date.date():
+                end_date = start_date + timedelta(days=1)
+                if end_date.date() > simdi.date():
+                    end_date = simdi
+            
+            # Tarihleri string formatına çevir
             start_str = start_date.strftime('%d/%m/%Y')
-            end_str = (end_date or datetime.now(timezone.utc)).strftime('%d/%m/%Y')
-            
-            # Tarihleri kontrol et
-            start_dt = datetime.strptime(start_str, '%d/%m/%Y')
-            end_dt = datetime.strptime(end_str, '%d/%m/%Y')
-            
-            # Eğer başlangıç tarihi bitiş tarihinden büyükse, bitiş tarihini bugün yap
-            if start_dt >= end_dt:
-                end_dt = datetime.now()
-                end_str = end_dt.strftime('%d/%m/%Y')
-                self.log(f"Tarih düzeltmesi yapıldı: {start_str} -> {end_str}")
+            end_str = end_date.strftime('%d/%m/%Y')
             
             # Investing.com'dan veri çek
             df = investpy.get_currency_cross_historical_data(
@@ -125,40 +146,55 @@ class ForexCollector:
             if isinstance(df, pd.DataFrame) and not df.empty:
                 # Tarihi index yap
                 df.index = pd.to_datetime(df.index)
-                
-                self._update_data_status(symbol, True)
-                return df
+                return df, True
                 
         except Exception as e:
             inv_error = str(e)
             if "currency_cross" in inv_error.lower():
                 inv_error = inv_error.replace(symbol.lower(), symbol_upper)
-            self.log(f"yf: {yf_symbol}   inv:{symbol_upper} denendi -> Veri alınamadı\nyfinance hata mesajı: {yf_error}\ninvesting hata mesajı: {inv_error}")
+            self.log(f"yf: {yf_symbol}   inv:{symbol} denendi -> Veri alınamadı")
+            self.log(f"yfinance hata mesajı: {yf_error}")
+            self.log(f"investing hata mesajı: {inv_error}")
             
         # Her iki kaynaktan da veri alınamadıysa
-        self._update_data_status(symbol, False)
-        return pd.DataFrame()
+        return pd.DataFrame(), False
             
     def _update_data_status(self, symbol, has_data):
         """Parite için veri durumunu günceller"""
+        conn = None
         try:
             conn = self.db.connect()
             if not conn:
+                self.log(f"{symbol} için veritabanı bağlantısı kurulamadı (veri_var güncellemesi)")
                 return
                 
             cursor = conn.cursor()
+            
+            # Her durumda güncelle
+            yeni_durum = 1 if has_data else 0
             cursor.execute("""
                 UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
                 SET veri_var = ?
                 WHERE parite = ?
-            """, (1 if has_data else 0, symbol))
+            """, (yeni_durum, symbol))
             
+            # Her zaman commit yap
             conn.commit()
+            self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi")
             
         except Exception as e:
-            self.log(f"Hata: Veri durumu güncellenemedi ({symbol}) - {str(e)}")
+            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except:
+                    pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
                 
     def get_dolar_karsiligi(self, symbol, fiyat):
         """Paritenin dolar karşılığını hesaplar"""
@@ -268,9 +304,12 @@ class ForexCollector:
             self.log("İşlenecek Forex verisi yok")
             return
             
+        self.log(f"Toplam {len(pairs)} Forex çifti işlenecek")
+        
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
+            conn = None
             
             try:
                 # Son kayıt tarihini kontrol et
@@ -288,27 +327,45 @@ class ForexCollector:
                 row = cursor.fetchone()
                 son_tarih = row[0] if row and row[0] else None
                 
+                # Bugünün tarihini al
+                simdi = datetime.now()
+                
                 if son_tarih is None:
                     # Hiç veri yoksa başlangıç tarihinden itibaren al
-                    veriler = self.collect_data(symbol, self.baslangic_tarihi)
-                    if not veriler.empty:
+                    baslangic = self.baslangic_tarihi
+                    if baslangic.date() > simdi.date():
+                        baslangic = simdi
+                    veriler, has_data = self.collect_data(symbol, baslangic, simdi)
+                    if has_data:
                         self.save_candles(symbol, veriler, ulke)
                 else:
                     # Son tarihten sonraki verileri al
-                    simdi = datetime.now(timezone.utc)
-                    son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+                    son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time())
                     
                     if son_guncelleme.date() < simdi.date():
-                        veriler = self.collect_data(
-                            symbol,
-                            son_guncelleme + timedelta(days=1),
-                            simdi
-                        )
-                        if not veriler.empty:
+                        baslangic = son_guncelleme + timedelta(days=1)
+                        if baslangic.date() > simdi.date():
+                            baslangic = simdi
+                        veriler, has_data = self.collect_data(symbol, baslangic, simdi)
+                        if has_data:
                             self.save_candles(symbol, veriler, ulke)
                     else:
                         continue
                 
+                # Her parite işlendikten sonra commit yap
+                conn.commit()
+                
             except Exception as e:
                 self.log(f"İşlem hatası ({symbol}): {str(e)}")
-                continue 
+                if conn:
+                    try:
+                        conn.rollback()
+                    except:
+                        pass
+                continue
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except:
+                        pass 
