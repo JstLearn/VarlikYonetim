@@ -215,6 +215,12 @@ class IndexCollector:
             return False
             
         try:
+            # Borsa bilgisini al
+            yf_symbol = symbol.split('/')[0]
+            index = yf.Ticker(yf_symbol)
+            info = index.info
+            exchange = info.get("exchange", "INDEX").upper() if info else "INDEX"
+            
             conn = self.db.connect()
             if not conn:
                 return False
@@ -241,7 +247,7 @@ class IndexCollector:
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, 
                     (symbol, '1d', tarih, 
-                     symbol, '1d', tarih, fiyat, dolar_karsiligi, 'INDEX', 'INDEX', ulke))
+                     symbol, '1d', tarih, fiyat, dolar_karsiligi, exchange, 'INDEX', ulke))
                     
                     kayit_sayisi += 1
                     
@@ -253,6 +259,13 @@ class IndexCollector:
             
             if kayit_sayisi > 0:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
+                # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
+                cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = 1, borsa = ?
+                    WHERE parite = ?
+                """, (exchange, symbol))
+                conn.commit()
                 
             return True
             
@@ -262,8 +275,6 @@ class IndexCollector:
             
     def run(self):
         """Tüm endeks verilerini toplar"""
-        self.log("="*50)
-        self.log("ENDEKS VERİLERİ TOPLANIYOR")
         self.log("="*50)
         
         pairs = self.get_active_pairs()

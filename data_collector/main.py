@@ -40,18 +40,18 @@ def main():
         if args.source in ['all', 'forex']:
             collector = ForexCollector()
             collector.run()
-            
+
+        if args.source in ['all', 'stock']:
+            collector = StockCollector()
+            collector.run()      
+
         if args.source in ['all', 'index']:
             collector = IndexCollector()
             collector.run()
             
         if args.source in ['all', 'commodity']:
             collector = CommodityCollector()
-            collector.run()
-            
-        if args.source in ['all', 'stock']:
-            collector = StockCollector()
-            collector.run()
+            collector.run()   
             
     except Exception as e:
         print(f"Hata: {str(e)}")

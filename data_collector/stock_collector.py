@@ -19,7 +19,7 @@ class StockCollector:
         print(f"[{timestamp}] {message}")
         
     def get_active_pairs(self):
-        """Aktif hisse senedi paritelerini getirir"""
+        """Aktif hisse senetlerini getirir"""
         try:
             conn = self.db.connect()
             if not conn:
@@ -29,7 +29,7 @@ class StockCollector:
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel, ulke 
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] 
-                WHERE tip = 'STOCK' 
+                WHERE tip = 'STOCK'
                 AND aktif = 1 
                 AND (veri_var = 1 OR veri_var IS NULL)
             """)
@@ -41,20 +41,90 @@ class StockCollector:
                     'exchange': row[1],
                     'ulke': row[3]
                 })
-                self.log(f"Parite: {row[0]}, Borsa: {row[1]}, Güncel: {'Evet' if row[2] else 'Hayır'}")
+            
+            if pairs:
+                self.log(f"Toplam {len(pairs)} hisse senedi işlenecek")
                 
             return pairs
             
         except Exception as e:
-            self.log(f"Hata: Hisse senedi pariteleri alınamadı - {str(e)}")
+            self.log(f"Hata: Hisse senetleri alınamadı - {str(e)}")
             return []
             
-    def collect_data(self, symbol, start_date, end_date=None):
-        """Hisse senedi verilerini yfinance'den toplar"""
+    def get_stock_suffix(self, symbol):
+        """Hisse senedi için doğru borsa suffix'ini belirler"""
         try:
+            # Önce suffix olmadan dene
+            stock = yf.Ticker(symbol)
+            info = stock.info
+            
+            if not info:
+                return None
+                
+            exchange = info.get("exchange", "").upper()
+            market = info.get("market", "").upper()
+            
+            self.log(f"yfinance: {symbol} için borsa bilgisi -> Exchange: {exchange}, Market: {market}")
+            
+            # Exchange bilgisinden suffix'i çıkar
+            # Örnek: "IST" -> ".IS", "BUE" -> ".BA" gibi
+            if exchange:
+                # Exchange adının son kısmını al (örn: "ISTANBUL" -> "IST")
+                exchange_code = exchange.split()[-1]
+                if exchange_code:
+                    # Exchange kodunun ilk harfi ile suffix oluştur
+                    suffix = f".{exchange_code[0]}"
+                    if len(exchange_code) > 1:
+                        # İkinci harf varsa ekle (örn: "IST" -> ".IS")
+                        suffix += exchange_code[1]
+                    return suffix
+            
+            return None
+            
+        except Exception as e:
+            self.log(f"Suffix belirleme hatası ({symbol}): {str(e)}")
+            return None
+            
+    def collect_data(self, symbol, start_date, end_date=None, ulke=None):
+        """Hisse senedi verilerini toplar"""
+        yf_error = None
+        inv_error = None
+        df = None
+        
+        # Bugünün tarihini al
+        simdi = datetime.now()
+        
+        # Başlangıç tarihi bugünden büyükse, bugünden 1 gün önceyi kullan
+        if start_date.date() >= simdi.date():
+            start_date = simdi - timedelta(days=1)
+        
+        # Bitiş tarihi yoksa bugünü kullan
+        if end_date is None:
+            end_date = simdi
+        # Bitiş tarihi başlangıç tarihinden küçükse bugünü kullan
+        elif end_date.date() <= start_date.date():
+            end_date = simdi
+            
+        # Beklenen gün sayısını hesapla
+        beklenen_gun = (end_date.date() - start_date.date()).days + 1
+        self.log(f"{symbol} için {start_date.date()} - {end_date.date()} arası veri toplanıyor ({beklenen_gun} gün)")
+            
+        # Önce yfinance'den dene
+        try:
+            # Para birimi kısmını kaldır (ABC/USD -> ABC)
+            yf_symbol = symbol.split('/')[0]
+            
+            # Borsa suffix'ini belirle
+            suffix = self.get_stock_suffix(yf_symbol)
+            if suffix:
+                yf_symbol += suffix
+                self.log(f"yfinance: {yf_symbol} sembolü deneniyor...")
+            else:
+                self.log(f"yfinance: {yf_symbol} için borsa suffix'i bulunamadı, suffix'siz deneniyor...")
+            
             # Tarihleri string formatına çevir
             start_str = start_date.strftime('%Y-%m-%d')
-            end_str = (end_date or datetime.now(timezone.utc)).strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
             
             # Tüm uyarıları bastır
             import warnings, sys, io
@@ -64,9 +134,9 @@ class StockCollector:
             stderr = sys.stderr
             sys.stderr = io.StringIO()
             
-            # yfinance'den veri çek
+            # Veriyi çek
             df = yf.download(
-                tickers=symbol,
+                tickers=yf_symbol,
                 start=start_str,
                 end=end_str,
                 interval='1d',
@@ -81,46 +151,106 @@ class StockCollector:
             sys.stderr = stderr
             
             if "1 Failed download" in error_output:
-                error_msg = error_output.split(']:')[1].strip() if ']:' in error_output else error_output
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log(f"yfinance hata mesajı: {error_msg}")
-                return pd.DataFrame(), False
+                yf_error = error_output.split(']:')[1].strip() if ']:' in error_output else error_output
+                df = None
             
-            if df is None or df.empty:
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log("yfinance hata mesajı: Veri bulunamadı")
-                return pd.DataFrame(), False
-            
-            # DataFrame'i düzenle
-            df = df.rename(columns={
-                'Open': 'open',
-                'High': 'high',
-                'Low': 'low',
-                'Close': 'close',
-                'Volume': 'volume'
-            })
-            
-            # Gerekli kolonları kontrol et
-            required_columns = ['open', 'high', 'low', 'close']
-            if not all(col in df.columns for col in required_columns):
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log("yfinance hata mesajı: Gerekli kolonlar eksik")
-                return pd.DataFrame(), False
-            
-            if 'volume' not in df.columns:
-                df['volume'] = 0
-            
-            if df[required_columns].isnull().any().any():
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log("yfinance hata mesajı: Eksik değerler var")
-                return pd.DataFrame(), False
-            
-            return df, True
-            
+            if df is not None and not df.empty:
+                gelen_gun = len(df)
+                self.log(f"yfinance: {symbol} için {gelen_gun} günlük veri alındı")
+                if gelen_gun < beklenen_gun:
+                    self.log(f"yfinance: Beklenen {beklenen_gun} gün, alınan {gelen_gun} gün")
+                return df, True
+                
         except Exception as e:
-            self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-            self.log(f"yfinance hata mesajı: {str(e)}")
-            return pd.DataFrame(), False
+            if not yf_error:
+                yf_error = str(e)
+            
+        # yfinance'den alınamadıysa investing.com'dan dene
+        try:
+            import investpy
+            import time
+            
+            # Para birimi ve sembolü ayır
+            symbol_parts = symbol.split('/')
+            stock_symbol = symbol_parts[0]
+            
+            # Investing.com için tarihleri ayarla (dd/mm/yyyy formatında)
+            start_str = start_date.strftime('%d/%m/%Y')
+            end_str = end_date.strftime('%d/%m/%Y')
+            
+            max_retries = 3
+            retry_delay = 5  # saniye
+            
+            for retry in range(max_retries):
+                try:
+                    # Investing.com'dan veri çek
+                    df = investpy.get_stock_historical_data(
+                        stock=stock_symbol,
+                        country=ulke,
+                        from_date=start_str,
+                        to_date=end_str
+                    )
+                    
+                    if isinstance(df, pd.DataFrame) and not df.empty:
+                        gelen_gun = len(df)
+                        self.log(f"investing: {symbol} için {gelen_gun} günlük veri alındı")
+                        if gelen_gun < beklenen_gun:
+                            self.log(f"investing: Beklenen {beklenen_gun} gün, alınan {gelen_gun} gün")
+                        return df, True
+                        
+                except Exception as retry_error:
+                    if "ERR#0015" in str(retry_error) and retry < max_retries - 1:
+                        # Rate limit hatası, bekle ve tekrar dene
+                        self.log(f"investing: Rate limit hatası, {retry_delay} saniye bekleniyor...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Her denemede bekleme süresini 2 katına çıkar
+                        continue
+                    raise  # Diğer hataları veya son denemeyi yukarı fırlat
+                
+        except Exception as e:
+            inv_error = str(e)
+            
+        # Her iki kaynaktan da veri alınamadıysa hataları logla
+        if "stock" in str(inv_error).lower() or "YFTzMissingError" in str(yf_error):
+            # Bilinen hatalar, sessizce geç
+            pass
+        elif "ERR#0015" in str(inv_error):
+            # Rate limit hatası
+            self.log(f"investing: {symbol} için rate limit hatası")
+        else:
+            # Beklenmeyen hatalar
+            if yf_error:
+                self.log(f"yfinance: {symbol} denendi -> {yf_error}")
+            if inv_error:
+                self.log(f"investing: {symbol} denendi -> {inv_error}")
+            
+        # Her iki kaynaktan da veri alınamadıysa veri_var'ı 0 yap
+        conn = None
+        try:
+            conn = self.db.connect()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = 0
+                    WHERE parite = ?
+                """, (symbol,))
+                conn.commit()
+        except Exception as e:
+            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+                    
+        return pd.DataFrame(), False
             
     def _update_data_status(self, symbol, has_data):
         """Hisse senedi için veri durumunu günceller"""
@@ -158,33 +288,23 @@ class StockCollector:
                     conn.close()
                 except:
                     pass
-            
+                
     def get_dolar_karsiligi(self, symbol, fiyat, ulke):
         """Hisse senedinin dolar karşılığını hesaplar"""
-        if ulke == 'USA':  # Amerikan hisseleri zaten dolar bazında
+        # Para birimini al (ABC/USD -> USD)
+        currency = symbol.split('/')[1]
+        
+        if currency == 'USD':  # Direkt USD karşılığı
             return fiyat
             
         try:
-            # Ülke para biriminin dolar kurunu bul
             conn = self.db.connect()
             if not conn:
                 return None
                 
             cursor = conn.cursor()
             
-            # Ülke para birimi kodunu belirle
-            currency_map = {
-                'Turkey': 'TRY',
-                'Japan': 'JPY',
-                'UK': 'GBP',
-                'Europe': 'EUR',
-                # Diğer ülkeler eklenebilir
-            }
-            
-            currency = currency_map.get(ulke)
-            if not currency:
-                return None
-                
+            # Önce CURRENCY/USD formatında ara
             cursor.execute("""
                 SELECT TOP 1 fiyat
                 FROM [VARLIK_YONETIM].[dbo].[kurlar]
@@ -195,9 +315,23 @@ class StockCollector:
             row = cursor.fetchone()
             if row:
                 currency_usd = float(row[0])
-                return fiyat / currency_usd  # Hisse değerini dolara çevir
-        except:
-            pass
+                return fiyat * currency_usd
+                
+            # Bulunamazsa USD/CURRENCY formatında ara ve tersini al
+            cursor.execute("""
+                SELECT TOP 1 fiyat
+                FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                WHERE parite = ? AND borsa = 'FOREX'
+                ORDER BY tarih DESC
+            """, (f"USD/{currency}",))
+            
+            row = cursor.fetchone()
+            if row:
+                currency_usd = float(row[0])
+                return fiyat * (1 / currency_usd)
+                
+        except Exception as e:
+            self.log(f"Dolar karşılığı hesaplama hatası ({symbol}): {str(e)}")
             
         return None
 
@@ -207,6 +341,12 @@ class StockCollector:
             return False
             
         try:
+            # Borsa bilgisini al
+            yf_symbol = symbol.split('/')[0]
+            stock = yf.Ticker(yf_symbol)
+            info = stock.info
+            exchange = info.get("exchange", "STOCK").upper() if info else "STOCK"
+            
             conn = self.db.connect()
             if not conn:
                 return False
@@ -216,59 +356,65 @@ class StockCollector:
             
             for tarih, row in df.iterrows():
                 try:
-                    fiyat = float(row['close'])
+                    fiyat = float(row['Close'])
                     dolar_karsiligi = self.get_dolar_karsiligi(symbol, fiyat, ulke)
                     
-                    if dolar_karsiligi is None:
-                        self.log(f"Dolar karşılığı hesaplanamadı: {symbol}")
-                        continue
-                        
+                    # Önce kaydın var olup olmadığını kontrol et
                     cursor.execute("""
-                        IF NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] 
-                            WHERE parite = ? AND [interval] = ? AND tarih = ?
-                        )
-                        INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
-                            parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, 
-                    (symbol, '1d', tarih, 
-                     symbol, '1d', tarih, fiyat, dolar_karsiligi, 'STOCK', 'STOCK', ulke))
+                        SELECT COUNT(*) as count
+                        FROM [VARLIK_YONETIM].[dbo].[kurlar] 
+                        WHERE parite = ? AND [interval] = ? AND tarih = ?
+                    """, (symbol, '1d', tarih))
                     
-                    kayit_sayisi += 1
+                    row = cursor.fetchone()
+                    count = row[0] if row else 0
+                    
+                    if count == 0:  # Kayıt yoksa ekle
+                        cursor.execute("""
+                            INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
+                                parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, 
+                        (symbol, '1d', tarih, fiyat, dolar_karsiligi, exchange, 'STOCK', ulke))
+                        kayit_sayisi += 1
                     
                 except Exception as e:
-                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"SQL Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    self.log(f"Hata detayı: {e.__class__.__name__}: {str(e)}")
+                    self.log(f"Değerler: parite={symbol}, interval=1d, tarih={tarih}, fiyat={fiyat}, dolar={dolar_karsiligi}, borsa={exchange}, tip=STOCK, ulke={ulke}")
                     continue
                     
             conn.commit()
             
             if kayit_sayisi > 0:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
+                # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
+                cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = 1, borsa = ?
+                    WHERE parite = ?
+                """, (exchange, symbol))
+                conn.commit()
                 
             return True
             
         except Exception as e:
-            self.log(f"Veri kaydetme hatası ({symbol}): {str(e)}")
+            self.log(f"Veritabanı hatası ({symbol}): {str(e)}")
+            self.log(f"Hata detayı: {e.__class__.__name__}: {str(e)}")
             return False
             
     def run(self):
         """Tüm hisse senedi verilerini toplar"""
         self.log("="*50)
-        self.log("HİSSE SENEDİ VERİLERİ TOPLANIYOR")
-        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
             self.log("İşlenecek hisse senedi verisi yok")
-            return
-            
-        self.log(f"Toplam {len(pairs)} hisse senedi işlenecek")
+            return           
         
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
-            conn = None
             
             try:
                 # Son kayıt tarihini kontrol et
@@ -286,52 +432,35 @@ class StockCollector:
                 row = cursor.fetchone()
                 son_tarih = row[0] if row and row[0] else None
                 
-                veriler = None
-                has_data = False
+                # Bağlantıyı kapat
+                cursor.close()
+                conn.close()
+                
+                # Bugünün tarihini al
+                simdi = datetime.now()
                 
                 if son_tarih is None:
                     # Hiç veri yoksa başlangıç tarihinden itibaren al
-                    veriler, has_data = self.collect_data(symbol, self.baslangic_tarihi)
+                    baslangic = self.baslangic_tarihi
+                    if baslangic.date() > simdi.date():
+                        baslangic = simdi
+                    veriler, has_data = self.collect_data(symbol, baslangic, simdi, ulke)
                     if has_data:
                         self.save_candles(symbol, veriler, ulke)
                 else:
                     # Son tarihten sonraki verileri al
-                    simdi = datetime.now(timezone.utc)
-                    son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+                    son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time())
                     
                     if son_guncelleme.date() < simdi.date():
-                        veriler, has_data = self.collect_data(
-                            symbol,
-                            son_guncelleme + timedelta(days=1),
-                            simdi
-                        )
+                        baslangic = son_guncelleme + timedelta(days=1)
+                        if baslangic.date() > simdi.date():
+                            baslangic = simdi
+                        veriler, has_data = self.collect_data(symbol, baslangic, simdi, ulke)
                         if has_data:
                             self.save_candles(symbol, veriler, ulke)
-                
-                # Veri durumunu güncelle
-                cursor.execute("""
-                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                    SET veri_var = ?
-                    WHERE parite = ?
-                """, (1 if has_data else 0, symbol))
-                
-                # Her parite işlendikten sonra commit yap
-                conn.commit()
-                
-                # Log mesajı
-                self.log(f"{symbol} için veri_var = {1 if has_data else 0} olarak güncellendi")
+                    else:
+                        continue
                 
             except Exception as e:
                 self.log(f"İşlem hatası ({symbol}): {str(e)}")
-                if conn:
-                    try:
-                        conn.rollback()
-                    except:
-                        pass
-                continue
-            finally:
-                if conn:
-                    try:
-                        conn.close()
-                    except:
-                        pass 
+                continue 

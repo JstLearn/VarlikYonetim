@@ -241,8 +241,6 @@ class CommodityCollector:
     def run(self):
         """Tüm emtia verilerini toplar"""
         self.log("="*50)
-        self.log("EMTİA VERİLERİ TOPLANIYOR")
-        self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:

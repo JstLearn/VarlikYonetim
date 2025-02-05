@@ -16,6 +16,18 @@ import investpy
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup, Tag
+import yfinance as yf
+import logging
+
+# yfinance ve ilgili logger'ları kapat
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+
+# Diğer logger'ları da kapat
+for name in logging.root.manager.loggerDict:
+    if 'yfinance' in name or 'urllib3' in name:
+        logging.getLogger(name).setLevel(logging.CRITICAL)
+        logging.getLogger(name).propagate = False
 
 # .env dosyasını yükle
 env_path = Path(__file__).parent.parent / '.env'
@@ -47,7 +59,6 @@ def check_db_config():
         log(f"Eksik veritabanı konfigürasyonu: {missing_keys}")
         return False
         
-    log("Veritabanı konfigürasyonu tamam")
     return True
 
 def get_binance_pariteler():
@@ -147,23 +158,43 @@ def get_stocks():
                 
                 country_stocks = []
                 for _, stock in stocks.iterrows():
-                    stock_info = {
-                        'parite': f"{stock['symbol']}/{currency}",
-                        'aktif': 1,
-                        'borsa': f"{country.upper()}_STOCK",
-                        'tip': 'STOCK',
-                        'ulke': country.title(),
-                        'aciklama': f"{stock['name']} - {country.title()} Stock"
-                    }
-                    country_stocks.append(stock_info)
+                    try:
+                        # Sembol formatını kontrol et ve düzelt
+                        yf_symbol = stock['symbol'].strip().upper()
+                        if not yf_symbol:
+                            continue
+                            
+                        # Borsa bilgisini yfinance'den al
+                        try:
+                            stock_ticker = yf.Ticker(yf_symbol)
+                            info = stock_ticker.info
+                            if info:
+                                exchange = info.get("exchange", f"{country.upper()}_STOCK").upper()
+                            else:
+                                exchange = f"{country.upper()}_STOCK"
+                        except:
+                            # 404 veya diğer hataları sessizce işle
+                            exchange = f"{country.upper()}_STOCK"
+                        
+                        stock_info = {
+                            'parite': f"{yf_symbol}/{currency}",
+                            'aktif': 1,
+                            'borsa': exchange,
+                            'tip': 'STOCK',
+                            'ulke': country.title(),
+                            'aciklama': f"{stock['name']} - {country.title()} Stock"
+                        }
+                        country_stocks.append(stock_info)
+                    except:
+                        continue
                 
-                eklenen, guncellenen, silinen = sync_pariteler_to_db(country_stocks)
-                log(f"{country}: {len(stocks)} hisse bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
-                toplam_eklenen += eklenen
+                if country_stocks:
+                    eklenen, guncellenen, silinen = sync_pariteler_to_db(country_stocks)
+                    log(f"{country}: {len(stocks)} hisse bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+                    toplam_eklenen += eklenen
             except Exception as e:
                 log(f"{country} hatası: {str(e)}")
                 continue
-        
         
         return []
         
@@ -237,19 +268,40 @@ def get_indices():
                 
                 country_indices = []
                 for _, index in indices.iterrows():
-                    index_info = {
-                        'parite': f"{index['symbol']}/{currency}",
-                        'aktif': 1,
-                        'borsa': f"{country.upper()}_INDEX",
-                        'tip': 'INDEX',
-                        'ulke': country.title(),
-                        'aciklama': f"{index['name']} - {country.title()} Index"
-                    }
-                    country_indices.append(index_info)
+                    try:
+                        # Sembol formatını kontrol et ve düzelt
+                        yf_symbol = index['symbol'].strip().upper()
+                        if not yf_symbol:
+                            continue
+                            
+                        # Yahoo Finance API'den veri almayı dene
+                        try:
+                            index_ticker = yf.Ticker(yf_symbol)
+                            info = index_ticker.info
+                            if info:
+                                exchange = info.get("exchange", f"{country.upper()}_INDEX").upper()
+                            else:
+                                exchange = f"{country.upper()}_INDEX"
+                        except:
+                            # 404 veya diğer hataları sessizce işle
+                            exchange = f"{country.upper()}_INDEX"
+                        
+                        index_info = {
+                            'parite': f"{yf_symbol}/{currency}",
+                            'aktif': 1,
+                            'borsa': exchange,
+                            'tip': 'INDEX',
+                            'ulke': country.title(),
+                            'aciklama': f"{index['name']} - {country.title()} Index"
+                        }
+                        country_indices.append(index_info)
+                    except:
+                        continue
                 
-                eklenen, guncellenen, silinen = sync_pariteler_to_db(country_indices)
-                log(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
-                toplam_eklenen += eklenen
+                if country_indices:
+                    eklenen, guncellenen, silinen = sync_pariteler_to_db(country_indices)
+                    log(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+                    toplam_eklenen += eklenen
             except Exception as e:
                 error_msg = str(e)
                 if "ERR#0034: country" in error_msg and "not found" in error_msg:
@@ -257,7 +309,6 @@ def get_indices():
                 else:
                     log(f"{country} endeks hatası: {error_msg}")
                 continue
-        
         
         return []
         
@@ -339,6 +390,14 @@ def get_all_pariteler():
             if parite_key not in eklenen_pariteler:
                 all_pariteler.append(parite)
                 eklenen_pariteler.add(parite_key)
+
+        # Hisse senetlerini ekle
+        stock_pariteler = get_stocks()
+        for parite in stock_pariteler:
+            parite_key = (parite['parite'], parite['borsa'], parite['tip'])
+            if parite_key not in eklenen_pariteler:
+                all_pariteler.append(parite)
+                eklenen_pariteler.add(parite_key)                
         
         # Endeksleri ekle
         indices = get_indices()
@@ -356,13 +415,7 @@ def get_all_pariteler():
                 all_pariteler.append(parite)
                 eklenen_pariteler.add(parite_key)
         
-        # Hisse senetlerini ekle
-        stock_pariteler = get_stocks()
-        for parite in stock_pariteler:
-            parite_key = (parite['parite'], parite['borsa'], parite['tip'])
-            if parite_key not in eklenen_pariteler:
-                all_pariteler.append(parite)
-                eklenen_pariteler.add(parite_key)
+
         
         return all_pariteler
         
@@ -475,15 +528,15 @@ def run_continuous():
             if forex_pariteler:
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(forex_pariteler)
                 log(f"Forex: {len(forex_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
-            
-            # 3. Emtialar (Forex'ten hemen sonra)
-            get_commodities()  # Direkt işlem yapacak
+
+            # 3. Hisse senetleri
+            get_stocks()  # Direkt işlem yapacak
             
             # 4. Endeksler
             get_indices()  # Direkt işlem yapacak
             
-            # 5. Hisse senetleri
-            get_stocks()  # Direkt işlem yapacak
+            # 5. Emtialar (Forex'ten hemen sonra)
+            get_commodities()  # Direkt işlem yapacak
                         
         except KeyboardInterrupt:
             log("\nProgram kullanıcı tarafından durduruldu")
