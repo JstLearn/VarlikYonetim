@@ -18,6 +18,7 @@ import requests
 from bs4 import BeautifulSoup, Tag
 import yfinance as yf
 import logging
+import signal
 
 # yfinance ve ilgili logger'ları kapat
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -32,6 +33,18 @@ for name in logging.root.manager.loggerDict:
 # .env dosyasını yükle
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(env_path)
+
+# Global değişken
+should_exit = False
+
+def signal_handler(signum, frame):
+    """Sinyal yakalayıcı"""
+    global should_exit
+    should_exit = True
+    log("\nProgram durduruluyor, lütfen bekleyin...")
+
+# Signal handler'ı kaydet
+signal.signal(signal.SIGINT, signal_handler)
 
 def log(message):
     """Zaman damgalı log mesajı yazdırır"""
@@ -162,14 +175,38 @@ def get_stocks():
                         if not yf_symbol:
                             continue
                             
-                        try:
-                            stock_ticker = yf.Ticker(yf_symbol)
-                            info = stock_ticker.info
-                            if info:
-                                exchange = info.get("exchange", f"{country.upper()}_STOCK").upper()
+                        # Önce veritabanında bu sembolü kontrol et
+                        db = Database()
+                        conn = db.connect()
+                        if conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                SELECT borsa FROM pariteler 
+                                WHERE parite LIKE ? AND tip = 'STOCK'
+                            """, (f"{yf_symbol}/%",))
+                            
+                            existing_exchange = cursor.fetchone()
+                            db.disconnect()
+                            
+                            if existing_exchange:
+                                exchange = existing_exchange[0]
                             else:
-                                exchange = f"{country.upper()}_STOCK"
-                        except:
+                                # Veritabanında yoksa ve borsa adında _ varsa Yahoo'dan sorgula
+                                default_exchange = f"{country.upper()}_STOCK"
+                                if '_' in default_exchange:
+                                    try:
+                                        stock_ticker = yf.Ticker(yf_symbol)
+                                        info = stock_ticker.info
+                                        if info:
+                                            exchange = info.get("exchange", default_exchange).upper()
+                                        else:
+                                            exchange = default_exchange
+                                    except:
+                                        exchange = default_exchange
+                                else:
+                                    exchange = default_exchange
+                        else:
+                            # Veritabanı bağlantısı kurulamazsa default değeri kullan
                             exchange = f"{country.upper()}_STOCK"
                         
                         stock_info = [{
@@ -239,21 +276,42 @@ def get_indices():
                 
                 for _, index in indices.iterrows():
                     try:
-                        # Sembol formatını kontrol et ve düzelt
                         yf_symbol = index['symbol'].strip().upper()
                         if not yf_symbol:
                             continue
                             
-                        # Yahoo Finance API'den veri almayı dene
-                        try:
-                            index_ticker = yf.Ticker(yf_symbol)
-                            info = index_ticker.info
-                            if info:
-                                exchange = info.get("exchange", f"{country.upper()}_INDEX").upper()
+                        # Önce veritabanında bu sembolü kontrol et
+                        db = Database()
+                        conn = db.connect()
+                        if conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                SELECT borsa FROM pariteler 
+                                WHERE parite LIKE ? AND tip = 'INDEX'
+                            """, (f"{yf_symbol}/%",))
+                            
+                            existing_exchange = cursor.fetchone()
+                            db.disconnect()
+                            
+                            if existing_exchange:
+                                exchange = existing_exchange[0]
                             else:
-                                exchange = f"{country.upper()}_INDEX"
-                        except:
-                            # 404 veya diğer hataları sessizce işle
+                                # Veritabanında yoksa ve borsa adında _ varsa Yahoo'dan sorgula
+                                default_exchange = f"{country.upper()}_INDEX"
+                                if '_' in default_exchange:
+                                    try:
+                                        index_ticker = yf.Ticker(yf_symbol)
+                                        info = index_ticker.info
+                                        if info:
+                                            exchange = info.get("exchange", default_exchange).upper()
+                                        else:
+                                            exchange = default_exchange
+                                    except:
+                                        exchange = default_exchange
+                                else:
+                                    exchange = default_exchange
+                        else:
+                            # Veritabanı bağlantısı kurulamazsa default değeri kullan
                             exchange = f"{country.upper()}_INDEX"
                         
                         index_info = [{
@@ -425,8 +483,10 @@ def get_all_pariteler():
 
 def sync_pariteler_to_db(yeni_pariteler):
     """
-    Pariteleri veritabanı ile senkronize eder ve değişiklikleri döndürür
+    Pariteleri veritabanı ile senkronize eder ve değişiklikleri döndürür.
+    Her bir pariteyi tek tek işler ve commit eder.
     """
+    global should_exit
     if not yeni_pariteler:
         return (0, 0, 0)  # eklenen, güncellenen, silinen
         
@@ -440,54 +500,47 @@ def sync_pariteler_to_db(yeni_pariteler):
             return (0, 0, 0)
             
         cursor = conn.cursor()
+        eklenen = 0
         
-        # Sadece ilgili borsanın mevcut paritelerini al
-        if len(yeni_pariteler) > 0:
-            cursor.execute("""
-                SELECT parite, borsa, tip, aktif, ulke 
-                FROM pariteler 
-                WHERE borsa = ?
-            """, yeni_pariteler[0]['borsa'])
-            
-            # Mevcut pariteleri set olarak tut
-            mevcut_pariteler = {
-                (row[0], row[1], row[2], row[3], row[4])  # parite, borsa, tip, aktif, ulke
-                for row in cursor.fetchall()
-            }
-            
-            eklenen = 0
-            silinen = 0
-            
-            # Yeni pariteleri toplu olarak ekle
-            for parite in yeni_pariteler:
-                try:
-                    key = (parite['parite'], parite['borsa'], parite['tip'], parite['aktif'], parite['ulke'])
+        # Her bir pariteyi tek tek işle
+        for parite in yeni_pariteler:
+            try:
+                if should_exit:
+                    log("\nParite ekleme işlemi kullanıcı tarafından durduruldu")
+                    return (eklenen, 0, 0)
                     
-                    if key not in mevcut_pariteler:
-                        cursor.execute("""
-                            IF NOT EXISTS (
-                                SELECT 1 FROM pariteler 
-                                WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
-                            )
-                            BEGIN
-                                INSERT INTO pariteler (parite, aktif, borsa, tip, ulke, aciklama)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            END
-                        """, 
-                        # Kontrol için
-                        parite['parite'], parite['borsa'], parite['tip'], parite['aktif'], parite['ulke'],
-                        # Insert için
-                        parite['parite'], parite['aktif'], parite['borsa'], 
-                        parite['tip'], parite['ulke'], parite['aciklama'])
-                        eklenen += 1
+                # Parite zaten var mı kontrol et
+                cursor.execute("""
+                    SELECT 1 FROM pariteler 
+                    WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
+                """, 
+                parite['parite'], parite['borsa'], parite['tip'], 
+                parite['aktif'], parite['ulke'])
+                
+                exists = cursor.fetchone() is not None
+                
+                if not exists:
+                    cursor.execute("""
+                        INSERT INTO pariteler (parite, aktif, borsa, tip, ulke, aciklama)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, 
+                    parite['parite'], parite['aktif'], parite['borsa'], 
+                    parite['tip'], parite['ulke'], parite['aciklama'])
                     
-                except Exception as e:
-                    log(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
-                    continue
+                    # Her ekleme sonrası commit
+                    conn.commit()
+                    eklenen += 1
+                    
+                    # Her 100 işlemde bir log
+                    if eklenen % 100 == 0:
+                        log(f"İşlenen: {eklenen} parite")
+                
+            except Exception as e:
+                log(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
+                conn.rollback()
+                continue
             
-            # Commit işlemi
-            conn.commit()
-            return (eklenen, 0, silinen)  # güncelleme yok
+        return (eklenen, 0, 0)  # güncelleme ve silme yok
             
     except Exception as e:
         log(f"Veritabanı işlem hatası: {str(e)}")
@@ -498,43 +551,65 @@ def sync_pariteler_to_db(yeni_pariteler):
     finally:
         if db:
             db.disconnect()
-        return (0, 0, 0)  # Hiçbir işlem yapılmadıysa
 
 def run_continuous():
     """Sürekli çalışan ana döngü"""
+    global should_exit
+    
     if not check_sql_driver() or not check_db_config():
         return
     
     log("Parite izleme başladı...")
     
-    while True:
+    while not should_exit:
         try:
             # 1. Binance pariteleri
+            if should_exit: break
+            log("Binance pariteleri alınıyor...")
             binance_pariteler = get_binance_pariteler()
             if binance_pariteler:
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(binance_pariteler)
                 log(f"Binance: {len(binance_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
             
             # 2. Forex pariteleri
+            if should_exit: break
+            log("Forex pariteleri alınıyor...")
             forex_pariteler = get_forex_pariteler()
             if forex_pariteler:
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(forex_pariteler)
                 log(f"Forex: {len(forex_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
 
             # 3. Hisse senetleri
+            if should_exit: break
+            log("Hisse senetleri alınıyor...")
             get_stocks()  # Direkt işlem yapacak
             
             # 4. Endeksler
+            if should_exit: break
+            log("Endeksler alınıyor...")
             get_indices()  # Direkt işlem yapacak
             
-            # 5. Emtialar (Forex'ten hemen sonra)
+            # 5. Emtialar
+            if should_exit: break
+            log("Emtialar alınıyor...")
             get_commodities()  # Direkt işlem yapacak
-                        
-        except KeyboardInterrupt:
-            log("\nProgram kullanıcı tarafından durduruldu")
-            break
+            
+            if should_exit: break
+            
+            # İşlem tamamlandı, 1 saat bekle
+            log("Tüm işlemler tamamlandı. 1 saat bekleniyor...")
+            for i in range(3600):  # 1 saat = 3600 saniye
+                if should_exit: break
+                time.sleep(1)
+                if i % 60 == 0:  # Her dakikada bir log
+                    log(f"Beklemede: {60 - (i // 60)} dakika kaldı")
+                    
         except Exception as e:
             log(f"İşlem hatası: {str(e)}")
+            if not should_exit:
+                time.sleep(5)  # Hata durumunda 5 saniye bekle
+    
+    log("Program sonlandırıldı")
 
 def fetch_currency_list():
     """ISO 4217 para birimleri listesini Wikipedia'dan çeker."""
