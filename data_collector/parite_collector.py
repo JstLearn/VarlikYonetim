@@ -146,7 +146,6 @@ def get_stocks():
     """
     try:
         countries = investpy.get_stock_countries()
-        toplam_eklenen = 0
         
         for country in countries:
             try:
@@ -155,16 +154,14 @@ def get_stocks():
                     continue
                 
                 currency = get_country_currency(country)
+                eklenen_sayisi = 0
                 
-                country_stocks = []
                 for _, stock in stocks.iterrows():
                     try:
-                        # Sembol formatını kontrol et ve düzelt
                         yf_symbol = stock['symbol'].strip().upper()
                         if not yf_symbol:
                             continue
                             
-                        # Borsa bilgisini yfinance'den al
                         try:
                             stock_ticker = yf.Ticker(yf_symbol)
                             info = stock_ticker.info
@@ -173,25 +170,26 @@ def get_stocks():
                             else:
                                 exchange = f"{country.upper()}_STOCK"
                         except:
-                            # 404 veya diğer hataları sessizce işle
                             exchange = f"{country.upper()}_STOCK"
                         
-                        stock_info = {
+                        stock_info = [{
                             'parite': f"{yf_symbol}/{currency}",
                             'aktif': 1,
                             'borsa': exchange,
                             'tip': 'STOCK',
                             'ulke': country.title(),
                             'aciklama': f"{stock['name']} - {country.title()} Stock"
-                        }
-                        country_stocks.append(stock_info)
-                    except:
+                        }]
+                        
+                        # Her hisseyi tek tek kaydet
+                        eklenen, guncellenen, silinen = sync_pariteler_to_db(stock_info)
+                        eklenen_sayisi += eklenen
+                        
+                    except Exception as e:
                         continue
                 
-                if country_stocks:
-                    eklenen, guncellenen, silinen = sync_pariteler_to_db(country_stocks)
-                    log(f"{country}: {len(stocks)} hisse bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
-                    toplam_eklenen += eklenen
+                log(f"{country} Stocks: {len(stocks)} parite bulundu -> {eklenen_sayisi} yeni, 0 güncellenen, 0 silinen")
+                
             except Exception as e:
                 log(f"{country} hatası: {str(e)}")
                 continue
@@ -201,33 +199,6 @@ def get_stocks():
     except Exception as e:
         log(f"Hata: {str(e)}")
         return []
-
-def get_forex_pariteler():
-    """
-    Temel forex paritelerini ISO 4217 listesinden dinamik olarak tüm çiftleri döndürür.
-    """
-    try:
-        currency_list = fetch_currency_list()
-        fetched_codes = list({code for _, code in currency_list})
-    except Exception as e:
-        log(f"Para birimi listesi alınamadı: {str(e)}")
-        return []
-
-    forex_pariteler = []
-    for i in range(len(fetched_codes)):
-         for j in range(len(fetched_codes)):
-              if i != j:
-                  base = fetched_codes[i]
-                  quote = fetched_codes[j]
-                  forex_pariteler.append({
-                      'parite': f"{base}/{quote}",
-                      'aktif': 1,
-                      'borsa': 'FOREX',
-                      'tip': 'SPOT',
-                      'ulke': 'Global',
-                      'aciklama': f"{base}/{quote} Forex Pair"
-                  })
-    return forex_pariteler
 
 def get_indices():
     """
@@ -266,7 +237,6 @@ def get_indices():
                 
                 currency = get_country_currency(country)
                 
-                country_indices = []
                 for _, index in indices.iterrows():
                     try:
                         # Sembol formatını kontrol et ve düzelt
@@ -286,22 +256,25 @@ def get_indices():
                             # 404 veya diğer hataları sessizce işle
                             exchange = f"{country.upper()}_INDEX"
                         
-                        index_info = {
+                        index_info = [{
                             'parite': f"{yf_symbol}/{currency}",
                             'aktif': 1,
                             'borsa': exchange,
                             'tip': 'INDEX',
                             'ulke': country.title(),
                             'aciklama': f"{index['name']} - {country.title()} Index"
-                        }
-                        country_indices.append(index_info)
+                        }]
+                        
+                        # Her bir endeks için hemen veritabanına kaydet
+                        eklenen, guncellenen, silinen = sync_pariteler_to_db(index_info)
+                        toplam_eklenen += eklenen
+                        
                     except:
                         continue
                 
-                if country_indices:
-                    eklenen, guncellenen, silinen = sync_pariteler_to_db(country_indices)
-                    log(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency}) -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
-                    toplam_eklenen += eklenen
+                log(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency}) -> {toplam_eklenen} yeni eklendi")
+                toplam_eklenen = 0  # Ülke bazlı sayacı sıfırla
+                
             except Exception as e:
                 error_msg = str(e)
                 if "ERR#0034: country" in error_msg and "not found" in error_msg:
@@ -315,6 +288,33 @@ def get_indices():
     except Exception as e:
         log(f"Endeks hatası: {str(e)}")
         return []
+
+def get_forex_pariteler():
+    """
+    Temel forex paritelerini ISO 4217 listesinden dinamik olarak tüm çiftleri döndürür.
+    """
+    try:
+        currency_list = fetch_currency_list()
+        fetched_codes = list({code for _, code in currency_list})
+    except Exception as e:
+        log(f"Para birimi listesi alınamadı: {str(e)}")
+        return []
+
+    forex_pariteler = []
+    for i in range(len(fetched_codes)):
+         for j in range(len(fetched_codes)):
+              if i != j:
+                  base = fetched_codes[i]
+                  quote = fetched_codes[j]
+                  forex_pariteler.append({
+                      'parite': f"{base}/{quote}",
+                      'aktif': 1,
+                      'borsa': 'FOREX',
+                      'tip': 'SPOT',
+                      'ulke': 'Global',
+                      'aciklama': f"{base}/{quote} Forex Pair"
+                  })
+    return forex_pariteler
 
 def get_commodities():
     """
@@ -428,7 +428,7 @@ def sync_pariteler_to_db(yeni_pariteler):
     Pariteleri veritabanı ile senkronize eder ve değişiklikleri döndürür
     """
     if not yeni_pariteler:
-        return 0, 0, 0  # eklenen, güncellenen, silinen
+        return (0, 0, 0)  # eklenen, güncellenen, silinen
         
     db = None
     conn = None
@@ -436,77 +436,69 @@ def sync_pariteler_to_db(yeni_pariteler):
         db = Database()
         conn = db.connect()
         if not conn:
-            return 0, 0, 0
+            log("Veritabanı bağlantısı kurulamadı")
+            return (0, 0, 0)
             
         cursor = conn.cursor()
         
         # Sadece ilgili borsanın mevcut paritelerini al
-        cursor.execute("""
-            SELECT parite, borsa, tip, aktif, ulke 
-            FROM pariteler 
-            WHERE borsa = ?
-        """, yeni_pariteler[0]['borsa'])
-        
-        # Mevcut pariteleri set olarak tut
-        mevcut_pariteler = {
-            (row[0], row[1], row[2], row[3], row[4])  # parite, borsa, tip, aktif, ulke
-            for row in cursor.fetchall()
-        }
-        
-        eklenen = 0
-        silinen = 0
-        
-        # Yeni pariteleri işle
-        yeni_keys = set()
-        for parite in yeni_pariteler:
-            try:
-                key = (parite['parite'], parite['borsa'], parite['tip'], parite['aktif'], parite['ulke'])
-                yeni_keys.add(key)
-                
-                if key not in mevcut_pariteler:
-                    # Yeni parite ekle
-                    cursor.execute("""
-                        IF NOT EXISTS (
-                            SELECT 1 FROM pariteler 
-                            WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
-                        )
-                        BEGIN
-                            INSERT INTO pariteler (parite, aktif, borsa, tip, ulke, aciklama)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        END
-                    """, 
-                    # Kontrol için
-                    parite['parite'], parite['borsa'], parite['tip'], parite['aktif'], parite['ulke'],
-                    # Insert için
-                    parite['parite'], parite['aktif'], parite['borsa'], 
-                    parite['tip'], parite['ulke'], parite['aciklama'])
-                    eklenen += 1
-                
-            except Exception as e:
-                log(f"Hata: {parite['parite']} - {str(e)}")
-                continue
-        
-        # Sadece aynı borsadaki kullanılmayan pariteleri sil
-        for key in mevcut_pariteler:
-            if key not in yeni_keys:
-                cursor.execute("""
-                    DELETE FROM pariteler 
-                    WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
-                """, key[0], key[1], key[2], key[3], key[4])
-                silinen += 1
-        
-        # Son commit
-        conn.commit()
-        return eklenen, 0, silinen  # güncelleme yok
-        
+        if len(yeni_pariteler) > 0:
+            cursor.execute("""
+                SELECT parite, borsa, tip, aktif, ulke 
+                FROM pariteler 
+                WHERE borsa = ?
+            """, yeni_pariteler[0]['borsa'])
+            
+            # Mevcut pariteleri set olarak tut
+            mevcut_pariteler = {
+                (row[0], row[1], row[2], row[3], row[4])  # parite, borsa, tip, aktif, ulke
+                for row in cursor.fetchall()
+            }
+            
+            eklenen = 0
+            silinen = 0
+            
+            # Yeni pariteleri toplu olarak ekle
+            for parite in yeni_pariteler:
+                try:
+                    key = (parite['parite'], parite['borsa'], parite['tip'], parite['aktif'], parite['ulke'])
+                    
+                    if key not in mevcut_pariteler:
+                        cursor.execute("""
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pariteler 
+                                WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
+                            )
+                            BEGIN
+                                INSERT INTO pariteler (parite, aktif, borsa, tip, ulke, aciklama)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            END
+                        """, 
+                        # Kontrol için
+                        parite['parite'], parite['borsa'], parite['tip'], parite['aktif'], parite['ulke'],
+                        # Insert için
+                        parite['parite'], parite['aktif'], parite['borsa'], 
+                        parite['tip'], parite['ulke'], parite['aciklama'])
+                        eklenen += 1
+                    
+                except Exception as e:
+                    log(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
+                    continue
+            
+            # Commit işlemi
+            conn.commit()
+            return (eklenen, 0, silinen)  # güncelleme yok
+            
     except Exception as e:
+        log(f"Veritabanı işlem hatası: {str(e)}")
         if conn:
             conn.rollback()
-        return 0, 0, 0
+        return (0, 0, 0)
         
     finally:
         if db:
             db.disconnect()
+        return (0, 0, 0)  # Hiçbir işlem yapılmadıysa
 
 def run_continuous():
     """Sürekli çalışan ana döngü"""
