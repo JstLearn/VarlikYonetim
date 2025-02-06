@@ -80,7 +80,7 @@ class ForexCollector:
         try:
             # Tüm para birimlerini al
             currencies = investpy.get_currency_crosses_list()
-            if len(currencies) == 0:
+            if not currencies:
                 print("Forex verisi bulunamadı")
                 return
                 

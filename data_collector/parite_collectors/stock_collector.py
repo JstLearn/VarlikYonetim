@@ -6,11 +6,14 @@ import investpy
 import yfinance as yf
 import requests
 import pandas as pd
+import signal
+import time
 from utils.database import Database
 
 class StockCollector():
     def __init__(self):
-        super().__init__()
+        self.should_exit = False
+        signal.signal(signal.SIGINT, self._signal_handler)
         self.major_exchanges = {
             'NYSE': {'country': 'USA', 'currency': 'USD'},
             'NASDAQ': {'country': 'USA', 'currency': 'USD'},
@@ -24,6 +27,11 @@ class StockCollector():
             'EURONEXT': {'country': 'France', 'currency': 'EUR'}
         }
         
+    def _signal_handler(self, signum, frame):
+        """Sinyal yakalayıcı"""
+        self.should_exit = True
+        print("Program durduruluyor, lütfen bekleyin...")
+
     def get_country_currency(self, country_name):
         """
         Ülkenin para birimini API'den alır
@@ -133,15 +141,15 @@ class StockCollector():
                         except Exception as e:
                             continue
                     
-                    self.log(f"{country} Stocks: {len(stocks)} parite bulundu -> {eklenen_sayisi} yeni eklendi")
+                    print(f"{country} Stocks: {len(stocks)} parite bulundu -> {eklenen_sayisi} yeni eklendi")
                     
                 except Exception as e:
-                    self.log(f"{country} hatası: {str(e)}")
+                    print(f"{country} hatası: {str(e)}")
                     continue
             
         except Exception as e:
             if not self.should_exit:
-                self.log(f"Hisse senedi verisi alınamadı: {str(e)}")
+                print(f"Hisse senedi verisi alınamadı: {str(e)}")
 
     def collect(self):
         """
@@ -248,3 +256,91 @@ class StockCollector():
             if not self.should_exit:
                 print(f"Borsa hisseleri alınamadı ({exchange}): {str(e)}")
             return [] 
+
+    def sync_pariteler_to_db(self, yeni_pariteler):
+        """Pariteleri veritabanına kaydeder"""
+        if not yeni_pariteler:
+            return (0, 0, 0)
+            
+        db = None
+        try:
+            db = Database()
+            if not db.connect():
+                print("Veritabanı bağlantısı kurulamadı")
+                return (0, 0, 0)
+                
+            cursor = db.cursor()
+            if not cursor:
+                print("Veritabanı cursor'ı oluşturulamadı")
+                return (0, 0, 0)
+                
+            eklenen = 0
+            
+            for parite in yeni_pariteler:
+                if self.should_exit:
+                    break
+                    
+                try:
+                    cursor.execute("""
+                        SELECT 1 FROM pariteler 
+                        WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
+                    """, 
+                    parite['parite'], parite['borsa'], parite['tip'], 
+                    parite['aktif'], parite['ulke'])
+                    
+                    exists = cursor.fetchone() is not None
+                    
+                    if not exists:
+                        cursor.execute("""
+                            INSERT INTO pariteler (parite, aktif, borsa, tip, ulke, aciklama)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, 
+                        parite['parite'], parite['aktif'], parite['borsa'], 
+                        parite['tip'], parite['ulke'], parite['aciklama'])
+                        
+                        db.commit()
+                        eklenen += 1
+                        
+                except Exception as e:
+                    print(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
+                    continue
+                    
+            return (eklenen, 0, 0)
+            
+        except Exception as e:
+            print(f"Veritabanı işlem hatası: {str(e)}")
+            return (0, 0, 0)
+            
+        finally:
+            if db:
+                db.disconnect()
+
+    def run_continuous(self, interval=3600):
+        """Sürekli çalışan ana döngü"""
+        print("Parite izleme başladı...")
+        
+        while not self.should_exit:
+            try:
+                self.collect_pariteler()
+                
+                if self.should_exit:
+                    print("Program durduruluyor...")
+                    break
+                    
+                print(f"Tüm işlemler tamamlandı. {interval//60} dakika bekleniyor...")
+                for i in range(interval):
+                    if self.should_exit:
+                        print("Program durduruluyor...")
+                        break
+                    time.sleep(1)
+                    
+            except Exception as e:
+                if not self.should_exit:
+                    print(f"İşlem hatası: {str(e)}")
+                    time.sleep(5)
+        
+        print("Program sonlandırıldı")
+
+if __name__ == "__main__":
+    collector = StockCollector()
+    collector.run_continuous() 
