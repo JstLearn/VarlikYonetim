@@ -3,11 +3,45 @@ Forex paritelerini toplayan sınıf
 """
 
 import investpy
+import requests
+from bs4 import BeautifulSoup, Tag
 from utils.database import Database
 
 class ForexCollector:
     def __init__(self):
         pass
+
+    def fetch_currency_list(self):
+        """ISO 4217 para birimleri listesini Wikipedia'dan çeker."""
+        url = 'https://en.wikipedia.org/wiki/ISO_4217'
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'lxml')
+        currencies = []
+        
+        # Ana para birimleri tablosunu bul (ilk büyük tablo)
+        tables = soup.find_all('table', {'class': 'wikitable'})
+        if not tables:
+            print("Para birimi tablosu bulunamadı.")
+            return currencies
+            
+        # İlk tablo aktif para birimlerini içerir
+        table = tables[0]
+        rows = table.find_all('tr')
+        
+        for row in rows[1:]:  # Başlık satırını atla
+            if isinstance(row, Tag):
+                cols = row.find_all('td')
+                if len(cols) >= 3:  # En az 3 sütun olmalı
+                    try:
+                        currency_code = cols[0].text.strip()
+                        currency_name = cols[2].text.strip()
+                        # Sadece 3 harfli kodları al ve boş olmayanları ekle
+                        if len(currency_code) == 3 and currency_code.isalpha():
+                            currencies.append((currency_name, currency_code))
+                    except:
+                        continue
+        
+        return currencies
 
     def sync_pariteler_to_db(self, yeni_pariteler):
         """Pariteleri veritabanına kaydeder"""
@@ -67,32 +101,30 @@ class ForexCollector:
     def collect_pariteler(self):
         """Forex paritelerini getirir ve veritabanına ekler"""
         try:
-            # Tüm para birimlerini al
-            currencies = investpy.get_currency_crosses_list()
-            if not currencies:
-                print("Forex verisi bulunamadı")
+            # Para birimi listesini al
+            currency_list = self.fetch_currency_list()
+            fetched_codes = list({code for _, code in currency_list})
+            
+            if not fetched_codes:
+                print("Para birimi listesi alınamadı")
                 return
                 
             parite_list = []
-            for currency in currencies:
-                try:
-                    # Para birimi çiftini ayır
-                    base, quote = currency.split('/')
-                    
-                    # Parite bilgilerini oluştur
-                    parite_info = {
-                        'parite': currency,
-                        'aktif': 1,
-                        'borsa': 'FOREX',
-                        'tip': 'FOREX',
-                        'ulke': 'Global',
-                        'aciklama': f"Forex - {base}/{quote}"
-                    }
-                    parite_list.append(parite_info)
-                    
-                except Exception as e:
-                    print(f"Parite işleme hatası ({currency}): {str(e)}")
-                    continue
+            # Tüm olası para birimi çiftlerini oluştur
+            for i in range(len(fetched_codes)):
+                for j in range(len(fetched_codes)):
+                    if i != j:
+                        base = fetched_codes[i]
+                        quote = fetched_codes[j]
+                        parite_info = {
+                            'parite': f"{base}/{quote}",
+                            'aktif': 1,
+                            'borsa': 'FOREX',
+                            'tip': 'SPOT',
+                            'ulke': 'Global',
+                            'aciklama': f"{base}/{quote} Forex Pair"
+                        }
+                        parite_list.append(parite_info)
             
             # Veritabanına kaydet
             if parite_list:

@@ -7,55 +7,99 @@ import yfinance as yf
 import requests
 import pandas as pd
 from utils.database import Database
+from bs4 import BeautifulSoup, Tag
+import logging
+
+# yfinance ve ilgili logger'ları kapat
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+
+# Diğer logger'ları da kapat
+for name in logging.root.manager.loggerDict:
+    if 'yfinance' in name or 'urllib3' in name:
+        logging.getLogger(name).setLevel(logging.CRITICAL)
+        logging.getLogger(name).propagate = False
 
 class StockCollector:
     def __init__(self):
-        self.major_exchanges = {
-            'NYSE': {'country': 'USA', 'currency': 'USD'},
-            'NASDAQ': {'country': 'USA', 'currency': 'USD'},
-            'LSE': {'country': 'UK', 'currency': 'GBP'},
-            'TSE': {'country': 'Japan', 'currency': 'JPY'},
-            'SSE': {'country': 'China', 'currency': 'CNY'},
-            'HKEX': {'country': 'Hong Kong', 'currency': 'HKD'},
-            'BIST': {'country': 'Turkey', 'currency': 'TRY'},
-            'BSE': {'country': 'India', 'currency': 'INR'},
-            'XETRA': {'country': 'Germany', 'currency': 'EUR'},
-            'EURONEXT': {'country': 'France', 'currency': 'EUR'}
-        }
+        pass
+
+    def get_exchange_info(self, symbol, country_name):
+        """
+        Borsa bilgisini önce yfinance sonra investpy'dan almaya çalışır
+        """
+        try:
+            # Önce yfinance'den dene
+            stock_ticker = yf.Ticker(symbol)
+            info = stock_ticker.info
+            if info and 'exchange' in info:
+                return info['exchange'].upper()
+                
+            # Yfinance'den bulunamazsa investpy'dan dene
+            stocks = investpy.get_stocks(country=country_name)
+            stock_info = stocks[stocks['symbol'].str.upper() == symbol.upper()]
+            if not stock_info.empty:
+                exchange = stock_info.iloc[0].get('exchange', '')
+                if exchange:
+                    return exchange.upper()
+                    
+            return f"{country_name.upper()}_STOCK"
+            
+        except:
+            return f"{country_name.upper()}_STOCK"
+
+    def fetch_currency_list(self):
+        """ISO 4217 para birimleri listesini Wikipedia'dan çeker."""
+        url = 'https://en.wikipedia.org/wiki/ISO_4217'
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'lxml')
+        currencies = []
+        
+        # Ana para birimleri tablosunu bul (ilk büyük tablo)
+        tables = soup.find_all('table', {'class': 'wikitable'})
+        if not tables:
+            print("Para birimi tablosu bulunamadı.")
+            return currencies
+            
+        # İlk tablo aktif para birimlerini içerir
+        table = tables[0]
+        rows = table.find_all('tr')
+        
+        for row in rows[1:]:  # Başlık satırını atla
+            if isinstance(row, Tag):
+                cols = row.find_all('td')
+                if len(cols) >= 3:  # En az 3 sütun olmalı
+                    try:
+                        currency_code = cols[0].text.strip()
+                        currency_name = cols[2].text.strip()
+                        # Sadece 3 harfli kodları al ve boş olmayanları ekle
+                        if len(currency_code) == 3 and currency_code.isalpha():
+                            currencies.append((currency_name, currency_code))
+                    except:
+                        continue
+        
+        return currencies
 
     def get_country_currency(self, country_name):
         """
-        Ülkenin para birimini API'den alır
+        Ülkenin para birimini Wikipedia'dan alır
         """
         try:
-            # REST Countries API'den ülke bilgilerini al
-            url = f"https://restcountries.com/v3.1/name/{country_name}"
-            response = requests.get(url)
+            # Önce ülke adını küçük harfe çevir
+            country_name = country_name.lower()
             
-            if response.status_code == 200:
-                data = response.json()
-                if data and len(data) > 0:
-                    # İlk eşleşen ülkenin para birimini al
-                    currencies = data[0].get('currencies', {})
-                    if currencies:
-                        # İlk para biriminin kodunu al
-                        currency_code = list(currencies.keys())[0]
-                        return currency_code
+            # Para birimi listesini al
+            currency_list = self.fetch_currency_list()
             
-            # API'den alınamazsa varsayılan değerleri kullan
-            defaults = {
-                'turkey': 'TRY',
-                'united states': 'USD',
-                'japan': 'JPY',
-                'china': 'CNY',
-                'united kingdom': 'GBP',
-                'european union': 'EUR',
-                'brazil': 'BRL',
-                'australia': 'AUD',
-                'canada': 'CAD',
-                'switzerland': 'CHF'
-            }
-            return defaults.get(country_name.lower(), 'USD')
+            # Wikipedia listesinde ara
+            for currency_name, currency_code in currency_list:
+                currency_name = currency_name.lower()
+                if (country_name in currency_name or 
+                    country_name.replace(' ', '') in currency_name.replace(' ', '')):
+                    return currency_code
+            
+            # Bulunamazsa USD döndür
+            return 'USD'
             
         except Exception as e:
             print(f"Para birimi alınamadı ({country_name}): {str(e)}")
@@ -130,6 +174,10 @@ class StockCollector:
                         continue
                     
                     currency = self.get_country_currency(country)
+                    if not currency:  # Para birimi bulunamadıysa bu ülkeyi atla
+                        print(f"{country} için para birimi bulunamadı, atlanıyor...")
+                        continue
+                        
                     eklenen_sayisi = 0
                     
                     # Ülke adını standartlaştır
@@ -152,23 +200,35 @@ class StockCollector:
                                 """, (f"{yf_symbol}/%",))
                                 
                                 existing_exchange = cursor.fetchone()
-                                db.disconnect()
                                 
                                 if existing_exchange:
                                     exchange = existing_exchange[0]
-                                else:
-                                    # Önce Yahoo Finance'den borsa adını almaya çalış
-                                    try:
-                                        stock_ticker = yf.Ticker(yf_symbol)
-                                        info = stock_ticker.info
-                                        if info and 'exchange' in info:
-                                            exchange = info['exchange'].upper()
-                                        else:
-                                            exchange = f"{country_name}_STOCK"
-                                    except:
-                                        exchange = f"{country_name}_STOCK"
+                                    # Eğer mevcut borsa _STOCK içeriyorsa yeniden kontrol et
+                                    if '_STOCK' in exchange:
+                                        try:
+                                            new_exchange = self.get_exchange_info(yf_symbol, country)
+                                            if new_exchange != exchange and '_STOCK' not in new_exchange:
+                                                # Borsa adını ve kayıt tarihini güncelle
+                                                cursor.execute("""
+                                                    UPDATE pariteler 
+                                                    SET borsa = ?, kayit_tarihi = GETDATE()
+                                                    WHERE parite LIKE ? AND tip = 'STOCK'
+                                                """, (new_exchange, f"{yf_symbol}/%"))
+                                                db.commit()
+                                                print(f"Borsa güncellendi: {yf_symbol} -> {new_exchange}")
+                                                exchange = new_exchange
+                                        except:
+                                            pass  # Güncelleme başarısız olursa mevcut borsa adını kullan
+                                    
+                                    db.disconnect()
+                                    continue  # Sembol zaten var, sonraki sembole geç
+                                
+                                db.disconnect()
+                                
+                                # Yeni kayıt için borsa adını al
+                                exchange = self.get_exchange_info(yf_symbol, country)
                             else:
-                                exchange = f"{country_name}_STOCK"
+                                exchange = f"{country_name.upper()}_STOCK"
                                 
                             stock_info = [{
                                 'parite': f"{yf_symbol}/{currency}",
@@ -184,6 +244,7 @@ class StockCollector:
                             eklenen_sayisi += eklenen
                             
                         except Exception as e:
+                            print(f"Hisse işleme hatası ({yf_symbol}): {str(e)}")
                             continue
                     
                     print(f"{country} Stocks: {len(stocks)} parite bulundu -> {eklenen_sayisi} yeni eklendi")
