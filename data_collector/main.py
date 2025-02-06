@@ -46,10 +46,10 @@ def main():
                 collectors.append(PariteBinanceSpotCollector())
             if args.source in ['all', 'forex']:
                 collectors.append(PariteForexCollector())
-            if args.source in ['all', 'stock']:
-                collectors.append(PariteStockCollector())
             if args.source in ['all', 'index']:
                 collectors.append(PariteIndexCollector())
+            if args.source in ['all', 'stock']:
+                collectors.append(PariteStockCollector())
             if args.source in ['all', 'commodity']:
                 collectors.append(PariteCommodityCollector())
                 

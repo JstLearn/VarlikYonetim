@@ -3,14 +3,195 @@ Borsa endekslerini toplayan sınıf
 """
 
 import investpy
-import yfinance as yf
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from utils.database import Database
+import logging
+
+# yfinance ve ilgili logger'ları kapat
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+
+# Diğer logger'ları da kapat
+for name in logging.root.manager.loggerDict:
+    if 'yfinance' in name or 'urllib3' in name:
+        logging.getLogger(name).setLevel(logging.CRITICAL)
+        logging.getLogger(name).propagate = False
 
 class IndexCollector:
     def __init__(self):
         pass
+
+    def fetch_currency_list(self):
+        """ISO 4217 para birimleri listesini Wikipedia'dan çeker."""
+        url = 'https://en.wikipedia.org/wiki/ISO_4217'
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'lxml')
+        currencies = []
+        
+        # Ana para birimleri tablosunu bul (ilk büyük tablo)
+        tables = soup.find_all('table', {'class': 'wikitable'})
+        if not tables:
+            return currencies
+            
+        # İlk tablo aktif para birimlerini içerir
+        table = tables[0]
+        rows = table.find_all('tr')
+        
+        for row in rows[1:]:  # Başlık satırını atla
+            if isinstance(row, Tag):
+                cols = row.find_all('td')
+                if len(cols) >= 3:  # En az 3 sütun olmalı
+                    try:
+                        currency_code = cols[0].text.strip()
+                        currency_name = cols[2].text.strip()
+                        # Sadece 3 harfli kodları al ve boş olmayanları ekle
+                        if len(currency_code) == 3 and currency_code.isalpha():
+                            currencies.append((currency_name, currency_code))
+                    except:
+                        continue
+        
+        return currencies
+
+    def get_country_currency(self, country_name):
+        """
+        Ülkenin para birimini Wikipedia'dan alır
+        """
+        try:
+            # Önce ülke adını küçük harfe çevir
+            country_name = country_name.lower()
+            
+            # Para birimi listesini al
+            currency_list = self.fetch_currency_list()
+            
+            # Wikipedia listesinde ara
+            for currency_name, currency_code in currency_list:
+                currency_name = currency_name.lower()
+                if (country_name in currency_name or 
+                    country_name.replace(' ', '') in currency_name.replace(' ', '')):
+                    return currency_code
+            
+            # Bulunamazsa USD döndür
+            return 'USD'
+            
+        except:
+            return 'USD'  # Hata durumunda USD kullan
+
+    def get_exchange_for_country(self, country):
+        """
+        Ülkenin ana borsasını investpy'dan alır
+        """
+        try:
+            # Ülkenin endekslerini al
+            indices = investpy.get_indices(country=country.lower())
+            if len(indices) > 0:
+                # Önce ülkeye göre varsayılan borsayı belirle
+                country_upper = country.upper()
+                default_exchanges = {
+                    'TURKEY': 'BIST',
+                    'UNITED KINGDOM': 'LSE',
+                    'UNITED STATES': 'NYSE',
+                    'JAPAN': 'TSE',
+                    'CHINA': 'SSE',
+                    'GERMANY': 'FWB',
+                    'FRANCE': 'EPA',
+                    'AUSTRALIA': 'ASX',
+                    'CANADA': 'TSX',
+                    'BRAZIL': 'B3',
+                    'INDIA': 'BSE',
+                    'SOUTH KOREA': 'KRX',
+                    'SWITZERLAND': 'SIX',
+                    'SPAIN': 'BME',
+                    'ITALY': 'MIL',
+                    'NETHERLANDS': 'AMS',
+                    'RUSSIA': 'MOEX',
+                    'SINGAPORE': 'SGX',
+                    'SWEDEN': 'STO'
+                }
+                
+                # Önce ülkenin varsayılan borsasını kontrol et
+                exchange = default_exchanges.get(country_upper)
+                
+                # Varsayılan borsa yoksa endeks adlarından çıkarmaya çalış
+                if not exchange:
+                    for _, index in indices.iterrows():
+                        name = index['name'].upper()
+                        # Bilinen borsa isimlerini kontrol et
+                        if 'BIST' in name and country_upper == 'TURKEY':
+                            exchange = 'BIST'
+                            break
+                        elif 'NYSE' in name and country_upper == 'UNITED STATES':
+                            exchange = 'NYSE'
+                            break
+                        elif 'NASDAQ' in name and country_upper == 'UNITED STATES':
+                            exchange = 'NASDAQ'
+                            break
+                        elif 'LSE' in name and country_upper == 'UNITED KINGDOM':
+                            exchange = 'LSE'
+                            break
+                        elif 'SSE' in name and country_upper == 'CHINA':
+                            exchange = 'SSE'
+                            break
+                        elif 'NIKKEI' in name and country_upper == 'JAPAN':
+                            exchange = 'TSE'
+                            break
+                        elif 'DAX' in name and country_upper == 'GERMANY':
+                            exchange = 'FWB'
+                            break
+                        elif 'CAC' in name and country_upper == 'FRANCE':
+                            exchange = 'EPA'
+                            break
+                        elif 'ASX' in name and country_upper == 'AUSTRALIA':
+                            exchange = 'ASX'
+                            break
+                        elif 'TSX' in name and country_upper == 'CANADA':
+                            exchange = 'TSX'
+                            break
+                        elif 'BOVESPA' in name and country_upper == 'BRAZIL':
+                            exchange = 'B3'
+                            break
+                        elif 'SENSEX' in name and country_upper == 'INDIA':
+                            exchange = 'BSE'
+                            break
+                        elif 'KOSPI' in name and country_upper == 'SOUTH KOREA':
+                            exchange = 'KRX'
+                            break
+                        elif 'SMI' in name and country_upper == 'SWITZERLAND':
+                            exchange = 'SIX'
+                            break
+                        elif 'IBEX' in name and country_upper == 'SPAIN':
+                            exchange = 'BME'
+                            break
+                        elif 'MIB' in name and country_upper == 'ITALY':
+                            exchange = 'MIL'
+                            break
+                        elif 'AEX' in name and country_upper == 'NETHERLANDS':
+                            exchange = 'AMS'
+                            break
+                        elif 'MOEX' in name and country_upper == 'RUSSIA':
+                            exchange = 'MOEX'
+                            break
+                        elif 'STI' in name and country_upper == 'SINGAPORE':
+                            exchange = 'SGX'
+                            break
+                        elif 'OMX' in name and country_upper == 'SWEDEN':
+                            exchange = 'STO'
+                            break
+                
+                # Hala borsa bulunamadıysa market bilgisini kullan
+                if not exchange:
+                    market = indices.iloc[0]['market'].upper()
+                    if market != 'GLOBAL_INDICES':
+                        exchange = market
+                    else:
+                        exchange = f"{country_upper}_STOCK"
+                
+                return indices, exchange
+            else:
+                return None, None
+            
+        except Exception as e:
+            return None, None
 
     def sync_pariteler_to_db(self, yeni_pariteler):
         """Pariteleri veritabanına kaydeder"""
@@ -21,12 +202,10 @@ class IndexCollector:
         try:
             db = Database()
             if not db.connect():
-                print("Veritabanı bağlantısı kurulamadı")
                 return (0, 0, 0)
                 
             cursor = db.cursor()
             if not cursor:
-                print("Veritabanı cursor'ı oluşturulamadı")
                 return (0, 0, 0)
                 
             eklenen = 0
@@ -35,10 +214,8 @@ class IndexCollector:
                 try:
                     cursor.execute("""
                         SELECT 1 FROM pariteler 
-                        WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
-                    """, 
-                    parite['parite'], parite['borsa'], parite['tip'], 
-                    parite['aktif'], parite['ulke'])
+                        WHERE parite = ? AND tip = 'INDEX'
+                    """, (parite['parite'],))
                     
                     exists = cursor.fetchone() is not None
                     
@@ -53,190 +230,73 @@ class IndexCollector:
                         db.commit()
                         eklenen += 1
                         
-                except Exception as e:
-                    print(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
+                except:
                     continue
                     
             return (eklenen, 0, 0)
             
-        except Exception as e:
-            print(f"Veritabanı işlem hatası: {str(e)}")
+        except:
             return (0, 0, 0)
             
         finally:
             if db:
                 db.disconnect()
 
-    def fetch_currency_list(self):
-        """ISO 4217 para birimleri listesini Wikipedia'dan çeker."""
-        url = 'https://en.wikipedia.org/wiki/ISO_4217'
-        response = requests.get(url)
-        soup = BeautifulSoup(response.content, 'lxml')
-        currencies = []
-        
-        # Ana para birimleri tablosunu bul (ilk büyük tablo)
-        tables = soup.find_all('table', {'class': 'wikitable'})
-        if not tables:
-            print("Para birimi tablosu bulunamadı.")
-            return currencies
-            
-        # İlk tablo aktif para birimlerini içerir
-        table = tables[0]
-        rows = table.find_all('tr')
-        
-        for row in rows[1:]:  # Başlık satırını atla
-            cols = row.find_all('td')
-            if len(cols) >= 3:  # En az 3 sütun olmalı
-                try:
-                    currency_code = cols[0].text.strip()
-                    currency_name = cols[2].text.strip()
-                    # Sadece 3 harfli kodları al ve boş olmayanları ekle
-                    if len(currency_code) == 3 and currency_code.isalpha():
-                        currencies.append((currency_name, currency_code))
-                except:
-                    continue
-        
-        return currencies
-
-    def get_country_currency(self, country_name):
-        """
-        Ülkenin para birimini API'den alır
-        """
-        try:
-            # REST Countries API'den ülke bilgilerini al
-            url = f"https://restcountries.com/v3.1/name/{country_name}"
-            response = requests.get(url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data and len(data) > 0:
-                    # İlk eşleşen ülkenin para birimini al
-                    currencies = data[0].get('currencies', {})
-                    if currencies:
-                        # İlk para biriminin kodunu al
-                        currency_code = list(currencies.keys())[0]
-                        return currency_code
-            
-            # API'den alınamazsa varsayılan değerleri kullan
-            defaults = {
-                'turkey': 'TRY',
-                'united states': 'USD',
-                'japan': 'JPY',
-                'china': 'CNY',
-                'united kingdom': 'GBP',
-                'european union': 'EUR',
-                'brazil': 'BRL',
-                'australia': 'AUD',
-                'canada': 'CAD',
-                'switzerland': 'CHF'
-            }
-            return defaults.get(country_name.lower(), 'USD')
-            
-        except Exception as e:
-            print(f"Para birimi alınamadı ({country_name}): {str(e)}")
-            return 'USD'  # Hata durumunda USD kullan
-
     def collect_pariteler(self):
         """
         Investpy üzerinden endeksleri getirir ve veritabanına ekler
         """
         try:
-            # Forex için kullanılan para birimi listesini al
-            currency_list = self.fetch_currency_list()
-            # Para birimi kodlarından ülke listesi oluştur
-            countries = set()
+            # Desteklenen ülkeleri al
+            countries = investpy.get_index_countries()
             
-            # Tüm para birimleri için ülkeleri bul
-            for _, currency_code in currency_list:
-                try:
-                    # Para birimi ile ülke arama
-                    url = f"https://restcountries.com/v3.1/currency/{currency_code}"
-                    response = requests.get(url)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        for country in data:
-                            # Ülke adını büyük harfe çevir
-                            country_name = country.get('name', {}).get('common', '').upper()
-                            if country_name:
-                                countries.add(country_name)
-                except:
-                    continue
-            
-            toplam_eklenen = 0
+            genel_toplam = 0
+            genel_eklenen = 0
             
             for country in countries:
                 try:
-                    indices = investpy.get_indices(country=country.lower())
-                    if len(indices) == 0:
+                    # Ülkenin endekslerini al
+                    indices_df, exchange = self.get_exchange_for_country(country)
+                    if indices_df is None or len(indices_df) == 0:
                         continue
                     
-                    currency = self.get_country_currency(country.lower())
-                    
-                    for _, index in indices.iterrows():
+                    # Her endeks için
+                    for _, index in indices_df.iterrows():
                         try:
-                            yf_symbol = index['symbol'].strip().upper()
-                            if not yf_symbol:
+                            # Endeks bilgilerini al
+                            symbol = index['symbol'].strip().upper()
+                            name = index['name'].strip()
+                            country_name = country.upper()
+                            currency = index['currency'].upper() if 'currency' in index else self.get_country_currency(country)
+                            
+                            if not symbol:
                                 continue
                                 
-                            # Önce veritabanında bu sembolü kontrol et
-                            db = Database()
-                            conn = db.connect()
-                            if conn:
-                                cursor = conn.cursor()
-                                cursor.execute("""
-                                    SELECT borsa FROM pariteler 
-                                    WHERE parite LIKE ? AND tip = 'INDEX'
-                                """, (f"{yf_symbol}/%",))
-                                
-                                existing_exchange = cursor.fetchone()
-                                db.disconnect()
-                                
-                                if existing_exchange:
-                                    exchange = existing_exchange[0]
-                                else:
-                                    # Önce Yahoo Finance'den borsa adını almaya çalış
-                                    try:
-                                        index_ticker = yf.Ticker(yf_symbol)
-                                        info = index_ticker.info
-                                        if info and 'exchange' in info:
-                                            exchange = info['exchange'].upper()
-                                        else:
-                                            exchange = f"{country}_INDEX"
-                                    except:
-                                        exchange = f"{country}_INDEX"
-                            else:
-                                exchange = f"{country}_INDEX"
-                            
                             index_info = [{
-                                'parite': f"{yf_symbol}/{currency}",
+                                'parite': f"{symbol}/{currency}",
                                 'aktif': 1,
                                 'borsa': exchange,
                                 'tip': 'INDEX',
-                                'ulke': country,
-                                'aciklama': f"{index['name']} - {country} Index"
+                                'ulke': country_name,
+                                'aciklama': f"{name} - {exchange} Index"
                             }]
                             
-                            # Her bir endeks için hemen veritabanına kaydet
+                            # Veritabanına kaydet
                             eklenen, guncellenen, silinen = self.sync_pariteler_to_db(index_info)
-                            toplam_eklenen += eklenen
+                            genel_eklenen += eklenen
                             
                         except:
                             continue
                     
-                    print(f"{country} endeksleri: {len(indices)} endeks bulundu ({currency}) -> {toplam_eklenen} yeni eklendi")
-                    toplam_eklenen = 0  # Ülke bazlı sayacı sıfırla
+                    genel_toplam += len(indices_df)
                     
-                except Exception as e:
-                    error_msg = str(e)
-                    if "ERR#0034: country" in error_msg and "not found" in error_msg:
-                        continue
-                    else:
-                        print(f"{country} endeks hatası: {error_msg}")
+                except:
                     continue
             
+            print(f"Indices: {genel_toplam} endeks bulundu -> {genel_eklenen} yeni eklendi")
+            
         except Exception as e:
-            print(f"Endeks verisi alınamadı: {str(e)}")
+            print(f"Hata: {str(e)}")
 
 if __name__ == "__main__":
     collector = IndexCollector()
