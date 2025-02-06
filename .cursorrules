@@ -50,9 +50,6 @@ cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim/back && npm start
 
 # Frontend Başlatma
 cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim/front && npm start
-```
-# Parite Toplama Servisi Başlatma
-cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && python parite_collector.py
 
 # Veri Toplama Servisi Başlatma
 cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && venv\Scripts\activate && python main.py

@@ -1,17 +1,18 @@
 """
-Binance Futures veri toplama işlemleri
+Binance Spot veri toplama işlemleri
 """
 
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 from binance.client import Client
-from database import Database
-from config import COLLECTION_CONFIG
+from utils.database import Database
+from utils.config import COLLECTION_CONFIG
 
-class BinanceFuturesCollector:
+
+class BinanceSpotCollector:
     def __init__(self):
         self.db = Database()
-        self.client = Client(None, None)  # API key olmadan da çalışır
+        self.client = Client("", "")  # API key olmadan çalışır
         self.baslangic_tarihi = datetime.strptime(COLLECTION_CONFIG['start_date'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
         
     def log(self, message):
@@ -20,7 +21,7 @@ class BinanceFuturesCollector:
         print(f"[{timestamp}] {message}")
         
     def get_active_pairs(self):
-        """Aktif Binance Futures paritelerini getirir"""
+        """Aktif Binance Spot paritelerini getirir"""
         try:
             conn = self.db.connect()
             if not conn:
@@ -30,7 +31,7 @@ class BinanceFuturesCollector:
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel 
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] 
-                WHERE borsa = 'BINANCE' AND tip = 'FUTURES' AND aktif = 1
+                WHERE borsa = 'BINANCE' AND tip = 'SPOT' AND aktif = 1
                 AND (veri_var = 1 OR veri_var IS NULL)
             """)
             
@@ -42,16 +43,16 @@ class BinanceFuturesCollector:
                 })
             
             if pairs:
-                self.log(f"Toplam {len(pairs)} Futures çifti işlenecek")
+                self.log(f"Toplam {len(pairs)} Spot çifti işlenecek")
                 
             return pairs
             
         except Exception as e:
-            self.log(f"Hata: Futures pariteleri alınamadı - {str(e)}")
+            self.log(f"Hata: Spot pariteleri alınamadı - {str(e)}")
             return []
             
     def collect_data(self, symbol, start_date, end_date=None):
-        """Binance Futures verilerini toplar"""
+        """Binance Spot verilerini toplar"""
         try:
             # Sembol formatını düzelt (BTC/USDT -> BTCUSDT)
             formatted_symbol = symbol.replace('/', '')
@@ -60,9 +61,9 @@ class BinanceFuturesCollector:
             start_ts = int(start_date.timestamp() * 1000)
             end_ts = int((end_date or datetime.now(timezone.utc)).timestamp() * 1000)
             
-            # Futures API'sini kullan
-            self.client.futures_ping()  # Test bağlantısı
-            klines = self.client.futures_historical_klines(
+            # Spot API'sini kullan
+            self.client.ping()  # Test bağlantısı
+            klines = self.client.get_historical_klines(
                 formatted_symbol,
                 Client.KLINE_INTERVAL_1DAY,
                 start_ts,
@@ -105,7 +106,7 @@ class BinanceFuturesCollector:
             return pd.DataFrame()
             
     def _update_data_status(self, symbol, has_data):
-        """Binance Futures için veri durumunu günceller"""
+        """Binance Spot için veri durumunu günceller"""
         try:
             conn = self.db.connect()
             if not conn:
@@ -137,7 +138,7 @@ class BinanceFuturesCollector:
                     conn.commit()
                     self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi (önceki değer: {mevcut_durum})")
             else:
-                self.log(f"{symbol} futures çifti veritabanında bulunamadı")
+                self.log(f"{symbol} spot çifti veritabanında bulunamadı")
             
         except Exception as e:
             self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
@@ -172,7 +173,7 @@ class BinanceFuturesCollector:
                         # WHERE koşulu için parametreler
                         symbol, '1d', tarih,
                         # INSERT için parametreler
-                        symbol, '1d', tarih, float(row['close']), float(row['close']), 'BINANCE', 'FUTURES', 'Global'
+                        symbol, '1d', tarih, float(row['close']), float(row['close']), 'BINANCE', 'SPOT', 'Global'
                     ))
                     
                     kayit_sayisi += 1
@@ -193,12 +194,12 @@ class BinanceFuturesCollector:
             return False
             
     def run(self):
-        """Tüm Futures verilerini toplar"""
+        """Tüm Spot verilerini toplar"""
         self.log("="*50)
         
         pairs = self.get_active_pairs()
         if not pairs:
-            self.log("İşlenecek Futures verisi yok")
+            self.log("İşlenecek Spot verisi yok")
             return
             
         for pair in pairs:

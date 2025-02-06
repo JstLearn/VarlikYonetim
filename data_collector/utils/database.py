@@ -1,64 +1,76 @@
 """
-Veritabanı bağlantı sınıfı
+Veritabanı işlemleri için yardımcı fonksiyonlar
 """
 
 import pyodbc
-from config import DB_CONFIG
+from .config import DB_CONFIG
 
 class Database:
-    _instance = None
-    _connection = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(Database, cls).__new__(cls)
-        return cls._instance
-        
     def __init__(self):
-        # Windows Authentication veya SQL Server Authentication
-        if DB_CONFIG['trusted_connection'].lower() == 'yes':
-            self.connection_string = (
-                f"DRIVER={DB_CONFIG['driver']};"
-                f"SERVER={DB_CONFIG['server']};"
-                f"DATABASE={DB_CONFIG['database']};"
-                f"Trusted_Connection=yes"
-            )
-        else:
-            self.connection_string = (
-                f"DRIVER={DB_CONFIG['driver']};"
-                f"SERVER={DB_CONFIG['server']};"
-                f"DATABASE={DB_CONFIG['database']};"
-                f"UID={DB_CONFIG['user']};"
-                f"PWD={DB_CONFIG['password']}"
-            )
+        self._connection = None
+        self._cursor = None
         
     def connect(self):
         """Veritabanına bağlanır"""
         try:
-            if not self._connection or self._connection.closed:
-                self._connection = pyodbc.connect(self.connection_string)
+            if not self._connection:
+                self._connection = pyodbc.connect(**DB_CONFIG)
+                self._cursor = self._connection.cursor()
             return self._connection
         except Exception as e:
             print(f"Veritabanı bağlantı hatası: {str(e)}")
+            self._connection = None
+            self._cursor = None
             return None
             
     def disconnect(self):
         """Veritabanı bağlantısını kapatır"""
         try:
-            if self._connection and not self._connection.closed:
+            if self._cursor:
+                self._cursor.close()
+                self._cursor = None
+            if self._connection:
                 self._connection.close()
+                self._connection = None
         except Exception as e:
             print(f"Bağlantı kapatma hatası: {str(e)}")
+        finally:
+            self._connection = None
+            self._cursor = None
             
+    def cursor(self):
+        """Veritabanı cursor'ını döndürür"""
+        if not self._connection or not self._cursor:
+            self.connect()
+        return self._cursor
+
+    def commit(self):
+        """Değişiklikleri kaydeder"""
+        try:
+            if self._connection:
+                self._connection.commit()
+        except Exception as e:
+            print(f"Commit hatası: {str(e)}")
+            
+    def rollback(self):
+        """Değişiklikleri geri alır"""
+        try:
+            if self._connection:
+                self._connection.rollback()
+        except Exception as e:
+            print(f"Rollback hatası: {str(e)}")
+            
+    def __del__(self):
+        """Yıkıcı metod"""
+        self.disconnect()
+
     def execute_query(self, query, params=None):
         """SQL sorgusunu çalıştır"""
         try:
-            conn = self.connect()
-            if not conn:
+            cursor = self.cursor()
+            if not cursor:
                 return None
                 
-            cursor = conn.cursor()
-            
             if params:
                 cursor.execute(query, params)
             else:
@@ -95,26 +107,19 @@ class Database:
     def execute_non_query(self, query, params=None):
         """INSERT, UPDATE, DELETE gibi sorguları çalıştır"""
         try:
-            conn = self.connect()
-            if not conn:
+            cursor = self.cursor()
+            if not cursor:
                 return False
                 
-            cursor = conn.cursor()
-            
             if params:
                 cursor.execute(query, params)
             else:
                 cursor.execute(query)
                 
-            conn.commit()
+            self.commit()
             return True
             
         except Exception as e:
             print(f"Sorgu çalıştırma hatası: {str(e)}")
-            if conn:
-                conn.rollback()
-            return False
-            
-    def __del__(self):
-        """Yıkıcı metod"""
-        self.disconnect() 
+            self.rollback()
+            return False 

@@ -89,20 +89,34 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 │   └── package-lock.json           # Frontend bağımlılık kilitleri
 │
 ├── /data_collector                 # Veri toplama servisi (Python)
-│   ├── /venv                       # Python sanal ortamı
-│   ├── /__pycache__               # Python önbellek klasörü
-│   ├── binance_futures_collector.py # Binance vadeli işlem veri toplayıcı
-│   ├── binance_spot_collector.py   # Binance spot veri toplayıcı
-│   ├── forex_collector.py          # Forex veri toplayıcı
-│   ├── index_collector.py          # Endeks veri toplayıcı
-│   ├── commodity_collector.py      # Emtia veri toplayıcı
-│   ├── stock_collector.py          # Hisse senedi veri toplayıcı
-│   ├── parite_collector.py         # Parite veri toplayıcı
-│   ├── config.py                   # Servis yapılandırması
-│   ├── database.py                 # Veritabanı işlemleri
-│   ├── main.py                     # Servis giriş noktası
-│   ├── requirements.txt            # Python bağımlılıkları
-│   └── README.md                   # Servis dokümantasyonu
+│   ├── /candle_collectors         # Mum verisi toplayıcıları
+│   │   ├── base_collector.py     # Temel toplayıcı sınıfı
+│   │   ├── binance_futures_collector.py # Binance vadeli işlem toplayıcı
+│   │   ├── binance_spot_collector.py # Binance spot toplayıcı
+│   │   ├── forex_collector.py    # Forex veri toplayıcı
+│   │   ├── index_collector.py    # Endeks veri toplayıcı
+│   │   ├── commodity_collector.py # Emtia veri toplayıcı
+│   │   └── stock_collector.py    # Hisse senedi veri toplayıcı
+│   │
+│   ├── /parite_collectors         # Parite toplayıcıları
+│   │   ├── base_collector.py     # Temel parite toplayıcı sınıfı
+│   │   ├── binance_futures_collector.py # Binance vadeli parite toplayıcı
+│   │   ├── binance_spot_collector.py # Binance spot parite toplayıcı
+│   │   ├── forex_collector.py    # Forex parite toplayıcı
+│   │   ├── index_collector.py    # Endeks parite toplayıcı
+│   │   ├── commodity_collector.py # Emtia parite toplayıcı
+│   │   └── stock_collector.py    # Hisse senedi parite toplayıcı
+│   │
+│   ├── /utils                     # Yardımcı araçlar
+│   │   ├── config.py            # Yapılandırma yönetimi
+│   │   ├── database.py          # Veritabanı işlemleri
+│   │   └── logger.py            # Loglama işlemleri
+│   │
+│   ├── /venv                      # Python sanal ortamı
+│   ├── /__pycache__              # Python önbellek klasörü
+│   ├── main.py                    # Ana uygulama giriş noktası
+│   ├── requirements.txt           # Python bağımlılıkları
+│   └── README.md                  # Servis dokümantasyonu
 │
 ├── database.md                     # Veritabanı şema dokümantasyonu
 ├── folderStructure.md              # Klasör yapısı dokümantasyonu
@@ -129,20 +143,27 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 - Grafik ve raporlama araçları
 
 ### Veri Toplama Servisi (Python)
-- Binance Futures ve Spot veri toplama
-- Forex kurları toplama
-- Endeks verileri toplama
-- Emtia fiyatları toplama
-- Hisse senedi verileri toplama
-- Zamanlanmış otomatik veri güncelleme
-- Veritabanına otomatik kayıt
-- Modüler veri toplayıcı yapısı
+- Modüler veri toplayıcı mimarisi
+  * Mum verisi toplayıcıları (candle_collectors)
+  * Parite toplayıcıları (parite_collectors)
+  * Ortak utils kütüphanesi
+- Desteklenen veri kaynakları:
+  * Binance Futures ve Spot
+  * Forex kurları
+  * Borsa endeksleri
+  * Emtia fiyatları
+  * Hisse senetleri
+- Özellikler:
+  * Zamanlanmış otomatik veri güncelleme
+  * Veritabanına otomatik kayıt
+  * Hata yönetimi ve loglama
+  * Yapılandırılabilir veri toplama aralıkları
 
 ## Teknoloji Yığını
 
 - **Backend:** Node.js, Express, MsSQL, JWT
 - **Frontend:** React Native Web, Context API, Axios
-- **Veri Toplama:** Python, yfinance, python-binance, SQLAlchemy
+- **Veri Toplama:** Python, ccxt, yfinance, SQLAlchemy
 - **DevOps:** Git
 - **Diğer:** SMTP, REST API
 
@@ -150,8 +171,8 @@ Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygu
 
 - Backend servisi Node.js/Express ile geliştirilmiştir ve MsSQL veritabanı kullanmaktadır
 - Frontend React Native Web kullanılarak geliştirilmiştir ve web tarayıcılarında çalışır
-- Veri toplama servisi Python ile yazılmış olup, modüler yapıda tasarlanmıştır
-- Her veri kaynağı için ayrı toplayıcı modüller bulunmaktadır
+- Veri toplama servisi modüler Python mimarisi ile yeniden yapılandırılmıştır
+- Her veri kaynağı için ayrı toplayıcı modüller ve ortak utils kütüphanesi bulunmaktadır
 - Sistem modüler yapıda tasarlanmış olup, yeni özellikler kolayca eklenebilir
 
 

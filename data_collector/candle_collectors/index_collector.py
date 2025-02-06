@@ -5,8 +5,9 @@ Endeks veri toplama işlemleri
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import yfinance as yf
-from database import Database
-from config import COLLECTION_CONFIG
+from utils.database import Database
+from utils.config import COLLECTION_CONFIG
+
 
 class IndexCollector:
     def __init__(self):

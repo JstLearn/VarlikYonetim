@@ -1,97 +1,97 @@
-# Varlık Yönetimi - Veri Toplama Uygulaması
+# Varlık Yönetimi Veri Toplama Servisi
 
-Bu uygulama, çeşitli finansal varlıkların (hisse senetleri, kripto paralar, döviz kurları ve altın) fiyat verilerini otomatik olarak toplar ve bir SQL Server veritabanında saklar.
+Bu servis, çeşitli finansal varlıkların verilerini toplar ve veritabanına kaydeder.
 
-## Özellikler
+## Desteklenen Veri Kaynakları
 
-- Borsa İstanbul hisse senetleri için fiyat ve hacim verileri
-- Popüler kripto paraların USD cinsinden fiyat ve hacim verileri
-- Önemli döviz kurları için güncel veriler
-- Altın türleri için güncel alış-satış fiyatları
-- Saatlik otomatik veri güncelleme
-- Hata yönetimi ve loglama
-
-## Gereksinimler
-
-- Python 3.8 veya üzeri
-- SQL Server veritabanı
-- SQL Server ODBC sürücüsü
-- collectapi.com API anahtarı (altın verileri için)
+- **Binance**: Kripto para çiftleri
+- **Forex**: Döviz çiftleri
+- **Hisse Senetleri**: Dünya borsalarındaki hisseler
+- **Borsa Endeksleri**: Önemli borsa endeksleri
+- **Emtialar**: Altın, gümüş, petrol vb.
 
 ## Kurulum
 
-1. Sanal ortam oluşturun ve aktifleştirin:
+1. Python 3.8 veya üzeri sürümü yükleyin
+2. Sanal ortam oluşturun ve aktif edin:
 ```bash
 python -m venv venv
 venv\Scripts\activate
 ```
 
-2. Gerekli paketleri yükleyin:
+3. Gerekli paketleri yükleyin:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. `config.py` dosyasında gerekli ayarlamaları yapın:
-   - Veritabanı bağlantı bilgilerini güncelleyin
-   - CollectAPI API anahtarınızı ekleyin
-   - İstenirse sembol listesini ve güncelleme aralığını değiştirin
-
-4. SQL Server'da 'VarlikDB' adında bir veritabanı oluşturun
+4. MsSQL veritabanı bağlantısını yapılandırın:
+- SQL Server yüklü olmalı
+- Windows kimlik doğrulaması aktif olmalı
+- `VarlikYonetim` veritabanı oluşturulmuş olmalı
 
 ## Kullanım
 
-Uygulamayı başlatmak için:
+Servisi başlatmak için:
 ```bash
 python main.py
 ```
 
-Uygulama başlatıldığında:
-1. Gerekli veritabanı tabloları otomatik olarak oluşturulur
-2. İlk veri toplama işlemi gerçekleştirilir
-3. Belirtilen aralıklarla (varsayılan: 1 saat) veriler güncellenir
+Servis başladığında:
+1. Tüm veri kaynaklarından veri toplar
+2. Verileri veritabanına kaydeder
+3. 5 dakika bekler
+4. İşlemi tekrarlar
 
-## Veritabanı Yapısı
+Durdurmak için `Ctrl+C` tuşlarına basın.
 
-### Hisseler Tablosu
-- ID (PK)
-- Sembol
-- Tarih
-- Acilis
-- Yuksek
-- Dusuk
-- Kapanis
-- Hacim
+## Klasör Yapısı
 
-### Kriptolar Tablosu
-- ID (PK)
-- Sembol
-- Tarih
-- Acilis
-- Yuksek
-- Dusuk
-- Kapanis
-- Hacim
+```
+data_collector/
+├── collectors/           # Veri toplayıcılar
+│   ├── base_collector.py
+│   ├── binance_collector.py
+│   ├── forex_collector.py
+│   ├── stock_collector.py
+│   ├── index_collector.py
+│   └── commodity_collector.py
+├── utils/               # Yardımcı modüller
+│   ├── database.py
+│   └── logger.py
+├── logs/               # Log dosyaları
+├── main.py            # Ana program
+├── requirements.txt   # Bağımlılıklar
+└── README.md         # Dokümantasyon
+```
 
-### Dovizler Tablosu
-- ID (PK)
-- Sembol
-- Tarih
-- Acilis
-- Yuksek
-- Dusuk
-- Kapanis
+## Veritabanı Şeması
 
-### Altin Tablosu
-- ID (PK)
-- Tur
-- Tarih
-- Alis
-- Satis
+`pariteler` tablosu:
+- `parite`: VARCHAR(50) - Parite kodu (örn: BTC/USDT)
+- `aktif`: BIT - Aktiflik durumu
+- `borsa`: VARCHAR(50) - İşlem gördüğü borsa
+- `tip`: VARCHAR(20) - Varlık tipi (CRYPTO, FOREX, STOCK, INDEX, COMMODITY)
+- `ulke`: VARCHAR(50) - Ülke kodu
+- `aciklama`: VARCHAR(500) - Açıklama
+- `kayit_tarihi`: DATETIME - Son güncelleme tarihi
 
 ## Hata Ayıklama
 
-Uygulama çalışırken karşılaşılan hatalar konsola yazdırılır. Hata mesajları tarih ve saat bilgisi içerir.
+- Log dosyaları `logs` klasöründe günlük olarak tutulur
+- Her hata detaylı şekilde loglanır
+- Veritabanı bağlantı hataları için Windows kimlik doğrulamasını kontrol edin
+- API hatalarında internet bağlantısını kontrol edin
 
-## Lisans
+## Güvenlik
 
-Bu proje MIT lisansı altında lisanslanmıştır. 
+- API anahtarları gerektiren işlemler için `.env` dosyası kullanılır
+- Windows kimlik doğrulaması ile güvenli veritabanı bağlantısı
+- Hassas veriler loglanmaz
+
+## Katkıda Bulunma
+
+1. Bu depoyu fork edin
+2. Yeni bir branch oluşturun (`git checkout -b feature/yeniOzellik`)
+3. Değişikliklerinizi commit edin (`git commit -am 'Yeni özellik: X'`)
+4. Branch'inizi push edin (`git push origin feature/yeniOzellik`)
+5. Pull Request oluşturun 

@@ -3,13 +3,13 @@ ccxt kütüphanesi kullanarak Binance borsasından aktif pariteleri veritabanın
 """
 
 import ccxt
-from database import Database
+from utils.database import Database
 import sys
 import pyodbc
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from config import DB_CONFIG
+from utils.config import DB_CONFIG
 from datetime import datetime
 import time
 import investpy
@@ -544,6 +544,87 @@ def sync_pariteler_to_db(yeni_pariteler):
         if db:
             db.disconnect()
 
+def update_exchange_names():
+    """
+    Borsa adında _STOCK geçen kayıtları Yahoo Finance'den tekrar kontrol eder
+    ve borsa adını güncelleyebilirse günceller.
+    """
+    global should_exit
+    try:
+        db = Database()
+        conn = db.connect()
+        if not conn:
+            log("Veritabanı bağlantısı kurulamadı")
+            return
+            
+        cursor = conn.cursor()
+        
+        # _STOCK içeren kayıtları al
+        cursor.execute("""
+            SELECT parite, borsa, ulke 
+            FROM pariteler 
+            WHERE borsa LIKE '%_STOCK' AND tip = 'STOCK'
+            ORDER BY kayit_tarihi ASC  -- En eski kayıtlardan başla
+        """)
+        
+        records = cursor.fetchall()
+        guncellenen = 0
+        
+        for record in records:
+            if should_exit:
+                log("Program durduruluyor...")
+                return
+                
+            try:
+                parite, current_exchange, ulke = record
+                symbol = parite.split('/')[0]  # Sembolü al
+                
+                # Yahoo Finance'den borsa adını almaya çalış
+                try:
+                    stock_ticker = yf.Ticker(symbol)
+                    info = stock_ticker.info
+                    if info and 'exchange' in info:
+                        new_exchange = info['exchange'].upper()
+                        if new_exchange != current_exchange:
+                            # Her kayıt için yeni bir bağlantı ve cursor oluştur
+                            update_db = Database()
+                            update_conn = update_db.connect()
+                            if update_conn:
+                                update_cursor = update_conn.cursor()
+                                
+                                # Borsa adını ve kayıt tarihini güncelle
+                                update_cursor.execute("""
+                                    UPDATE pariteler 
+                                    SET borsa = ?, kayit_tarihi = GETDATE()
+                                    WHERE parite = ? AND borsa = ? AND tip = 'STOCK'
+                                """, new_exchange, parite, current_exchange)
+                                
+                                # Hemen commit et
+                                update_conn.commit()
+                                update_db.disconnect()
+                                
+                                guncellenen += 1
+                                log(f"Borsa güncellendi: {parite} -> {new_exchange}")
+                except Exception as e:
+                    if not should_exit:
+                        log(f"Yahoo Finance hatası ({parite}): {str(e)}")
+                    continue
+                    
+            except Exception as e:
+                if not should_exit:
+                    log(f"Borsa güncelleme hatası ({parite}): {str(e)}")
+                continue
+        
+        if not should_exit:
+            log(f"Borsa güncelleme tamamlandı: {guncellenen} kayıt güncellendi")
+            
+    except Exception as e:
+        if not should_exit:
+            log(f"Borsa güncelleme işlemi hatası: {str(e)}")
+    finally:
+        if db:
+            db.disconnect()
+
 def run_continuous():
     """Sürekli çalışan ana döngü"""
     global should_exit
@@ -555,6 +636,11 @@ def run_continuous():
     
     while not should_exit:
         try:
+            # 0. Borsa isimlerini güncelleme kontrolü
+            if should_exit: break
+            log("Borsa isimleri kontrol ediliyor...")
+            # update_exchange_names()
+            
             # 1. Binance pariteleri
             if should_exit: break
             log("Binance pariteleri alınıyor...")

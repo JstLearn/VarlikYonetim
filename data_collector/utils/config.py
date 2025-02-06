@@ -13,18 +13,18 @@ load_dotenv(env_path)
 
 # Veritabanı bağlantı ayarları
 DB_CONFIG = {
-    'driver': os.getenv('DB_DRIVER', '{ODBC Driver 17 for SQL Server}'),
-    'server': os.getenv('DB_SERVER', 'localhost'),
-    'database': os.getenv('DB_DATABASE', 'VARLIK_YONETIM'),
+    'driver': '{SQL Server Native Client 11.0}',
+    'server': os.getenv('DB_SERVER'),
+    'database': os.getenv('DB_NAME'),
     'user': os.getenv('DB_USER'),
     'password': os.getenv('DB_PASSWORD'),
-    'trusted_connection': os.getenv('DB_TRUSTED_CONNECTION', 'no')
+    'trusted_connection': 'no'
 }
 
 # Konfigürasyon kontrolü
-for key, value in DB_CONFIG.items():
-    if not value:
-        logging.error(f"Eksik veritabanı konfigürasyonu: {key}")
+for key in ['server', 'database', 'user', 'password']:
+    if not DB_CONFIG.get(key):
+        print(f"Eksik veritabanı konfigürasyonu: {key}")
 
 # Veri toplama ayarları
 COLLECTION_CONFIG = {
@@ -59,4 +59,4 @@ LOG_CONFIG = {
 }
 
 # Veri çekme sıklığı (saniye)
-UPDATE_INTERVAL = 1  # Realtime güncelleme için 1 saniye 
+UPDATE_INTERVAL = int(os.getenv('UPDATE_INTERVAL', 1))  # varsayılan 1 saat 

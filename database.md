@@ -1,5 +1,5 @@
 {
-  "info": "Bu dosya, projenin veritabanı tablolarına ait temel bilgileri içermektedir. Son güncelleme tarihi: 2024-03-19",
+  "info": "Bu dosya, projenin veritabanı tablolarına ait temel bilgileri içermektedir. Son güncelleme tarihi: 2024-03-20",
   "tables": [
     {
       "tableName": "pariteler",
