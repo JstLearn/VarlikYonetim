@@ -2,9 +2,7 @@
 Veri toplama servisinin ana giriş noktası
 """
 
-import signal
 import sys
-import time
 import argparse
 from utils.config import UPDATE_INTERVAL
 
@@ -26,19 +24,9 @@ from candle_collectors.commodity_collector import CommodityCollector as CandleCo
 
 # Global değişkenler
 collectors = []
-should_exit = False
-
-def signal_handler(sig, frame):
-    """Ctrl+C ile programı sonlandır"""
-    global should_exit
-    should_exit = True
-    print("Program durduruluyor, lütfen bekleyin...")
 
 def main():
     """Ana fonksiyon"""
-    # Sinyal işleyicisini ayarla
-    signal.signal(signal.SIGINT, signal_handler)
-    
     # Argüman ayrıştırıcıyı ayarla
     parser = argparse.ArgumentParser(description='Veri toplama servisi')
     parser.add_argument('--source', type=str, choices=['all', 'binance_futures', 'binance_spot', 'forex', 'index', 'commodity', 'stock'],
@@ -80,26 +68,14 @@ def main():
             if args.source in ['all', 'commodity']:
                 collectors.append(CandleCommodityCollector())
                 
-        # Sonsuz döngü
-        while not should_exit:
-            for collector in collectors:
-                if should_exit:
-                    break
+        # Her collector için çalıştır
+        for collector in collectors:
+            try:
+                collector.collect_pariteler()
+            except Exception as e:
+                print(f"Toplayıcı hatası: {str(e)}")
+                continue
                     
-                try:
-                    # Veri topla
-                    collector.run()
-                except Exception as e:
-                    print(f"Toplayıcı hatası: {str(e)}")
-                    continue
-                    
-            # Güncelleme aralığı kadar bekle
-            if not should_exit:
-                time.sleep(UPDATE_INTERVAL)
-                
-    except KeyboardInterrupt:
-        print("\nProgram durduruluyor...")
-        sys.exit(0)
     except Exception as e:
         print(f"Beklenmeyen hata: {str(e)}")
         sys.exit(1)

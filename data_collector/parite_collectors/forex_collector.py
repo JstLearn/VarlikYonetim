@@ -3,19 +3,11 @@ Forex paritelerini toplayan sınıf
 """
 
 import investpy
-import signal
-import time
 from utils.database import Database
 
 class ForexCollector:
     def __init__(self):
-        self.should_exit = False
-        signal.signal(signal.SIGINT, self._signal_handler)
-        
-    def _signal_handler(self, signum, frame):
-        """Sinyal yakalayıcı"""
-        self.should_exit = True
-        print("Program durduruluyor, lütfen bekleyin...")
+        pass
 
     def sync_pariteler_to_db(self, yeni_pariteler):
         """Pariteleri veritabanına kaydeder"""
@@ -37,9 +29,6 @@ class ForexCollector:
             eklenen = 0
             
             for parite in yeni_pariteler:
-                if self.should_exit:
-                    break
-                    
                 try:
                     cursor.execute("""
                         SELECT 1 FROM pariteler 
@@ -102,46 +91,17 @@ class ForexCollector:
                     parite_list.append(parite_info)
                     
                 except Exception as e:
-                    if not self.should_exit:
-                        print(f"Parite işleme hatası ({currency}): {str(e)}")
+                    print(f"Parite işleme hatası ({currency}): {str(e)}")
                     continue
             
             # Veritabanına kaydet
             if parite_list:
                 eklenen, guncellenen, silinen = self.sync_pariteler_to_db(parite_list)
-                if not self.should_exit:
-                    print(f"Forex: {len(parite_list)} parite bulundu -> {eklenen} yeni eklendi")
+                print(f"Forex: {len(parite_list)} parite bulundu -> {eklenen} yeni eklendi")
             
         except Exception as e:
-            if not self.should_exit:
-                print(f"Forex verisi alınamadı: {str(e)}")
-
-    def run_continuous(self, interval=3600):
-        """Sürekli çalışan ana döngü"""
-        print("Parite izleme başladı...")
-        
-        while not self.should_exit:
-            try:
-                self.collect_pariteler()
-                
-                if self.should_exit:
-                    print("Program durduruluyor...")
-                    break
-                    
-                print(f"Tüm işlemler tamamlandı. {interval//60} dakika bekleniyor...")
-                for i in range(interval):
-                    if self.should_exit:
-                        print("Program durduruluyor...")
-                        break
-                    time.sleep(1)
-                    
-            except Exception as e:
-                if not self.should_exit:
-                    print(f"İşlem hatası: {str(e)}")
-                    time.sleep(5)
-        
-        print("Program sonlandırıldı")
+            print(f"Forex verisi alınamadı: {str(e)}")
 
 if __name__ == "__main__":
     collector = ForexCollector()
-    collector.run_continuous() 
+    collector.collect_pariteler() 

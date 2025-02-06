@@ -6,19 +6,11 @@ import investpy
 import yfinance as yf
 import requests
 from bs4 import BeautifulSoup
-import signal
-import time
 from utils.database import Database
 
 class IndexCollector:
     def __init__(self):
-        self.should_exit = False
-        signal.signal(signal.SIGINT, self._signal_handler)
-        
-    def _signal_handler(self, signum, frame):
-        """Sinyal yakalayıcı"""
-        self.should_exit = True
-        print("Program durduruluyor, lütfen bekleyin...")
+        pass
 
     def sync_pariteler_to_db(self, yeni_pariteler):
         """Pariteleri veritabanına kaydeder"""
@@ -40,9 +32,6 @@ class IndexCollector:
             eklenen = 0
             
             for parite in yeni_pariteler:
-                if self.should_exit:
-                    break
-                    
                 try:
                     cursor.execute("""
                         SELECT 1 FROM pariteler 
@@ -247,35 +236,8 @@ class IndexCollector:
                     continue
             
         except Exception as e:
-            if not self.should_exit:
-                print(f"Endeks verisi alınamadı: {str(e)}")
-
-    def run_continuous(self, interval=3600):
-        """Sürekli çalışan ana döngü"""
-        print("Parite izleme başladı...")
-        
-        while not self.should_exit:
-            try:
-                self.collect_pariteler()
-                
-                if self.should_exit:
-                    print("Program durduruluyor...")
-                    break
-                    
-                print(f"Tüm işlemler tamamlandı. {interval//60} dakika bekleniyor...")
-                for i in range(interval):
-                    if self.should_exit:
-                        print("Program durduruluyor...")
-                        break
-                    time.sleep(1)
-                    
-            except Exception as e:
-                if not self.should_exit:
-                    print(f"İşlem hatası: {str(e)}")
-                    time.sleep(5)
-        
-        print("Program sonlandırıldı")
+            print(f"Endeks verisi alınamadı: {str(e)}")
 
 if __name__ == "__main__":
     collector = IndexCollector()
-    collector.run_continuous() 
+    collector.collect_pariteler()
