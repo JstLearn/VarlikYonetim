@@ -82,23 +82,30 @@ class StockCollector:
 
     def get_country_currency(self, country_name):
         """
-        Ülkenin para birimini Wikipedia'dan alır
+        Ülkenin para birimini investpy'dan alır
         """
         try:
             # Önce ülke adını küçük harfe çevir
             country_name = country_name.lower()
             
-            # Para birimi listesini al
-            currency_list = self.fetch_currency_list()
+            # Investpy'dan ülkenin endekslerini al
+            indices = investpy.get_indices(country=country_name)
+            if len(indices) > 0 and 'currency' in indices.columns:
+                # İlk endeksin para birimini al
+                currency = indices.iloc[0]['currency'].upper()
+                if currency and currency != 'USD':
+                    return currency
             
-            # Wikipedia listesinde ara
+            # Bulunamazsa Wikipedia'dan dene
+            currency_list = self.fetch_currency_list()
             for currency_name, currency_code in currency_list:
                 currency_name = currency_name.lower()
                 if (country_name in currency_name or 
                     country_name.replace(' ', '') in currency_name.replace(' ', '')):
                     return currency_code
             
-            # Bulunamazsa USD döndür
+            # Yine bulunamazsa USD döndür
+            print(f"Uyarı: {country_name} için para birimi bulunamadı, USD kullanılıyor.")
             return 'USD'
             
         except Exception as e:
@@ -167,6 +174,9 @@ class StockCollector:
         try:
             countries = investpy.get_stock_countries()
             
+            genel_toplam = 0
+            genel_eklenen = 0
+            
             for country in countries:
                 try:
                     stocks = investpy.get_stocks(country=country)
@@ -178,8 +188,6 @@ class StockCollector:
                         print(f"{country} için para birimi bulunamadı, atlanıyor...")
                         continue
                         
-                    eklenen_sayisi = 0
-                    
                     # Ülke adını standartlaştır
                     country_name = country.upper()
                     
@@ -241,17 +249,19 @@ class StockCollector:
                             
                             # Her hisseyi tek tek kaydet
                             eklenen, guncellenen, silinen = self.sync_pariteler_to_db(stock_info)
-                            eklenen_sayisi += eklenen
+                            genel_eklenen += eklenen
                             
                         except Exception as e:
                             print(f"Hisse işleme hatası ({yf_symbol}): {str(e)}")
                             continue
                     
-                    print(f"{country} Stocks: {len(stocks)} parite bulundu -> {eklenen_sayisi} yeni eklendi")
+                    genel_toplam += len(stocks)
                     
                 except Exception as e:
                     print(f"{country} hatası: {str(e)}")
                     continue
+            
+            print(f"Stocks: {genel_toplam} parite bulundu -> {genel_eklenen} yeni eklendi")
             
         except Exception as e:
             print(f"Hisse senedi verisi alınamadı: {str(e)}")

@@ -40,18 +40,19 @@ def main():
         
         # Parite toplayıcıları
         if args.type in ['all', 'parite']:
+            if args.source in ['all', 'commodity']:
+                collectors.append(PariteCommodityCollector())
             if args.source in ['all', 'binance_futures']:
                 collectors.append(PariteBinanceFuturesCollector())
             if args.source in ['all', 'binance_spot']:
                 collectors.append(PariteBinanceSpotCollector())
+            if args.source in ['all', 'index']:
+                collectors.append(PariteIndexCollector())                
             if args.source in ['all', 'forex']:
                 collectors.append(PariteForexCollector())
-            if args.source in ['all', 'index']:
-                collectors.append(PariteIndexCollector())
             if args.source in ['all', 'stock']:
                 collectors.append(PariteStockCollector())
-            if args.source in ['all', 'commodity']:
-                collectors.append(PariteCommodityCollector())
+
                 
         # Mum toplayıcıları
         if args.type in ['all', 'candle']:
