@@ -17,6 +17,9 @@ class Database:
                 self._connection = pyodbc.connect(**DB_CONFIG)
                 self._cursor = self._connection.cursor()
             return self._connection
+        except KeyboardInterrupt:
+            self.disconnect()
+            raise
         except Exception as e:
             print(f"Veritabanı bağlantı hatası: {str(e)}")
             self._connection = None
@@ -49,6 +52,10 @@ class Database:
         try:
             if self._connection:
                 self._connection.commit()
+        except KeyboardInterrupt:
+            self.rollback()
+            self.disconnect()
+            raise
         except Exception as e:
             print(f"Commit hatası: {str(e)}")
             
@@ -78,6 +85,10 @@ class Database:
                 
             return cursor
             
+        except KeyboardInterrupt:
+            self.rollback()
+            self.disconnect()
+            raise
         except Exception as e:
             print(f"Sorgu çalıştırma hatası: {str(e)}")
             return None
@@ -88,6 +99,9 @@ class Database:
         if cursor:
             try:
                 return cursor.fetchall()
+            except KeyboardInterrupt:
+                self.disconnect()
+                raise
             except Exception as e:
                 print(f"Veri getirme hatası: {str(e)}")
                 
@@ -99,6 +113,9 @@ class Database:
         if cursor:
             try:
                 return cursor.fetchone()
+            except KeyboardInterrupt:
+                self.disconnect()
+                raise
             except Exception as e:
                 print(f"Veri getirme hatası: {str(e)}")
                 
@@ -119,6 +136,10 @@ class Database:
             self.commit()
             return True
             
+        except KeyboardInterrupt:
+            self.rollback()
+            self.disconnect()
+            raise
         except Exception as e:
             print(f"Sorgu çalıştırma hatası: {str(e)}")
             self.rollback()

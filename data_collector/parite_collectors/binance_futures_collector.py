@@ -84,7 +84,7 @@ class BinanceFuturesCollector:
                     parite_info = {
                         'parite': symbol['symbol'],
                         'aktif': 1,
-                        'borsa': 'BINANCE_FUTURES',
+                        'borsa': 'BINANCE',
                         'tip': 'FUTURES',
                         'ulke': 'Global',
                         'aciklama': f"Binance Futures - {symbol['baseAsset']}/{symbol['quoteAsset']}"

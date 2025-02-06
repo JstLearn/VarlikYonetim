@@ -84,7 +84,7 @@ class BinanceSpotCollector:
                     parite_info = {
                         'parite': symbol['symbol'],
                         'aktif': 1,
-                        'borsa': 'BINANCE_SPOT',
+                        'borsa': 'BINANCE',
                         'tip': 'SPOT',
                         'ulke': 'Global',
                         'aciklama': f"Binance Spot - {symbol['baseAsset']}/{symbol['quoteAsset']}"

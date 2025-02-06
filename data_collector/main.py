@@ -72,14 +72,24 @@ def main():
         for collector in collectors:
             try:
                 collector.collect_pariteler()
+            except KeyboardInterrupt:
+                print("\nKullanıcı tarafından durduruldu.")
+                sys.exit(0)
             except Exception as e:
                 print(f"Toplayıcı hatası: {str(e)}")
                 continue
                     
+    except KeyboardInterrupt:
+        print("\nKullanıcı tarafından durduruldu.")
+        sys.exit(0)
     except Exception as e:
         print(f"Beklenmeyen hata: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nKullanıcı tarafından durduruldu.")
+        sys.exit(0)
     
