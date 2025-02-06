@@ -169,6 +169,9 @@ def get_stocks():
                 currency = get_country_currency(country)
                 eklenen_sayisi = 0
                 
+                # Ülke adını standartlaştır
+                country_name = country.upper()
+                
                 for _, stock in stocks.iterrows():
                     try:
                         yf_symbol = stock['symbol'].strip().upper()
@@ -191,31 +194,26 @@ def get_stocks():
                             if existing_exchange:
                                 exchange = existing_exchange[0]
                             else:
-                                # Veritabanında yoksa ve borsa adında _ varsa Yahoo'dan sorgula
-                                default_exchange = f"{country.upper()}_STOCK"
-                                if '_' in default_exchange:
-                                    try:
-                                        stock_ticker = yf.Ticker(yf_symbol)
-                                        info = stock_ticker.info
-                                        if info:
-                                            exchange = info.get("exchange", default_exchange).upper()
-                                        else:
-                                            exchange = default_exchange
-                                    except:
-                                        exchange = default_exchange
-                                else:
-                                    exchange = default_exchange
+                                # Önce Yahoo Finance'den borsa adını almaya çalış
+                                try:
+                                    stock_ticker = yf.Ticker(yf_symbol)
+                                    info = stock_ticker.info
+                                    if info and 'exchange' in info:
+                                        exchange = info['exchange'].upper()
+                                    else:
+                                        exchange = f"{country_name}_STOCK"
+                                except:
+                                    exchange = f"{country_name}_STOCK"
                         else:
-                            # Veritabanı bağlantısı kurulamazsa default değeri kullan
-                            exchange = f"{country.upper()}_STOCK"
-                        
+                            exchange = f"{country_name}_STOCK"
+                            
                         stock_info = [{
                             'parite': f"{yf_symbol}/{currency}",
                             'aktif': 1,
                             'borsa': exchange,
                             'tip': 'STOCK',
-                            'ulke': country.title(),
-                            'aciklama': f"{stock['name']} - {country.title()} Stock"
+                            'ulke': country_name,
+                            'aciklama': f"{stock['name']} - {country_name} Stock"
                         }]
                         
                         # Her hisseyi tek tek kaydet
@@ -257,8 +255,8 @@ def get_indices():
                 if response.status_code == 200:
                     data = response.json()
                     for country in data:
-                        # Ülke adını küçük harfe çevir
-                        country_name = country.get('name', {}).get('common', '').lower()
+                        # Ülke adını büyük harfe çevir
+                        country_name = country.get('name', {}).get('common', '').upper()
                         if country_name:
                             countries.add(country_name)
             except:
@@ -268,11 +266,11 @@ def get_indices():
         
         for country in countries:
             try:
-                indices = investpy.get_indices(country=country)
+                indices = investpy.get_indices(country=country.lower())
                 if len(indices) == 0:
                     continue
                 
-                currency = get_country_currency(country)
+                currency = get_country_currency(country.lower())
                 
                 for _, index in indices.iterrows():
                     try:
@@ -296,31 +294,26 @@ def get_indices():
                             if existing_exchange:
                                 exchange = existing_exchange[0]
                             else:
-                                # Veritabanında yoksa ve borsa adında _ varsa Yahoo'dan sorgula
-                                default_exchange = f"{country.upper()}_INDEX"
-                                if '_' in default_exchange:
-                                    try:
-                                        index_ticker = yf.Ticker(yf_symbol)
-                                        info = index_ticker.info
-                                        if info:
-                                            exchange = info.get("exchange", default_exchange).upper()
-                                        else:
-                                            exchange = default_exchange
-                                    except:
-                                        exchange = default_exchange
-                                else:
-                                    exchange = default_exchange
+                                # Önce Yahoo Finance'den borsa adını almaya çalış
+                                try:
+                                    index_ticker = yf.Ticker(yf_symbol)
+                                    info = index_ticker.info
+                                    if info and 'exchange' in info:
+                                        exchange = info['exchange'].upper()
+                                    else:
+                                        exchange = f"{country}_INDEX"
+                                except:
+                                    exchange = f"{country}_INDEX"
                         else:
-                            # Veritabanı bağlantısı kurulamazsa default değeri kullan
-                            exchange = f"{country.upper()}_INDEX"
+                            exchange = f"{country}_INDEX"
                         
                         index_info = [{
                             'parite': f"{yf_symbol}/{currency}",
                             'aktif': 1,
                             'borsa': exchange,
                             'tip': 'INDEX',
-                            'ulke': country.title(),
-                            'aciklama': f"{index['name']} - {country.title()} Index"
+                            'ulke': country,
+                            'aciklama': f"{index['name']} - {country} Index"
                         }]
                         
                         # Her bir endeks için hemen veritabanına kaydet
@@ -487,7 +480,7 @@ def sync_pariteler_to_db(yeni_pariteler):
     Her bir pariteyi tek tek işler ve commit eder.
     """
     global should_exit
-    if not yeni_pariteler:
+    if not yeni_pariteler or should_exit:
         return (0, 0, 0)  # eklenen, güncellenen, silinen
         
     db = None
@@ -504,11 +497,11 @@ def sync_pariteler_to_db(yeni_pariteler):
         
         # Her bir pariteyi tek tek işle
         for parite in yeni_pariteler:
+            if should_exit:
+                log("Program durduruluyor...")
+                return (eklenen, 0, 0)
+                
             try:
-                if should_exit:
-                    log("\nParite ekleme işlemi kullanıcı tarafından durduruldu")
-                    return (eklenen, 0, 0)
-                    
                 # Parite zaten var mı kontrol et
                 cursor.execute("""
                     SELECT 1 FROM pariteler 
@@ -527,25 +520,24 @@ def sync_pariteler_to_db(yeni_pariteler):
                     parite['parite'], parite['aktif'], parite['borsa'], 
                     parite['tip'], parite['ulke'], parite['aciklama'])
                     
-                    # Her ekleme sonrası commit
+                    # Her ekleme sonrası hemen commit et
                     conn.commit()
                     eklenen += 1
                     
                     # Her 100 işlemde bir log
-                    if eklenen % 100 == 0:
+                    if eklenen % 100 == 0 and not should_exit:
                         log(f"İşlenen: {eklenen} parite")
                 
             except Exception as e:
-                log(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
-                conn.rollback()
+                if not should_exit:
+                    log(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
                 continue
             
         return (eklenen, 0, 0)  # güncelleme ve silme yok
             
     except Exception as e:
-        log(f"Veritabanı işlem hatası: {str(e)}")
-        if conn:
-            conn.rollback()
+        if not should_exit:
+            log(f"Veritabanı işlem hatası: {str(e)}")
         return (0, 0, 0)
         
     finally:
@@ -569,7 +561,8 @@ def run_continuous():
             binance_pariteler = get_binance_pariteler()
             if binance_pariteler:
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(binance_pariteler)
-                log(f"Binance: {len(binance_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+                if not should_exit:
+                    log(f"Binance: {len(binance_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
             
             # 2. Forex pariteleri
             if should_exit: break
@@ -577,7 +570,8 @@ def run_continuous():
             forex_pariteler = get_forex_pariteler()
             if forex_pariteler:
                 eklenen, guncellenen, silinen = sync_pariteler_to_db(forex_pariteler)
-                log(f"Forex: {len(forex_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
+                if not should_exit:
+                    log(f"Forex: {len(forex_pariteler)} parite bulundu -> {eklenen} yeni, {guncellenen} güncellenen, {silinen} silinen")
 
             # 3. Hisse senetleri
             if should_exit: break
@@ -594,19 +588,23 @@ def run_continuous():
             log("Emtialar alınıyor...")
             get_commodities()  # Direkt işlem yapacak
             
-            if should_exit: break
+            if should_exit: 
+                log("Program durduruluyor...")
+                break
             
             # İşlem tamamlandı, 1 saat bekle
             log("Tüm işlemler tamamlandı. 1 saat bekleniyor...")
             for i in range(3600):  # 1 saat = 3600 saniye
-                if should_exit: break
+                if should_exit: 
+                    log("Program durduruluyor...")
+                    break
                 time.sleep(1)
-                if i % 60 == 0:  # Her dakikada bir log
+                if i % 60 == 0 and not should_exit:  # Her dakikada bir log
                     log(f"Beklemede: {60 - (i // 60)} dakika kaldı")
                     
         except Exception as e:
-            log(f"İşlem hatası: {str(e)}")
             if not should_exit:
+                log(f"İşlem hatası: {str(e)}")
                 time.sleep(5)  # Hata durumunda 5 saniye bekle
     
     log("Program sonlandırıldı")
