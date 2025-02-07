@@ -27,23 +27,81 @@ class StockCollector:
     def get_exchange_info(self, symbol, country_name):
         """
         Borsa bilgisini önce yfinance sonra investpy'dan almaya çalışır
+        Birden fazla borsa varsa virgülle ayırarak birleştirir
         """
+        exchanges = set()  # Tekrar eden borsaları önlemek için set kullan
+        
         try:
             # Önce yfinance'den dene
             stock_ticker = yf.Ticker(symbol)
             info = stock_ticker.info
-            if info and 'exchange' in info:
-                return info['exchange'].upper()
+            if info:
+                # Ana borsa
+                if 'exchange' in info:
+                    exchanges.add(info['exchange'].upper())
+                # İkincil borsalar
+                if 'otherExchanges' in info:
+                    other = info['otherExchanges']
+                    if isinstance(other, str):
+                        for ex in other.split(','):
+                            ex = ex.strip().upper()
+                            if ex:  # Boş string kontrolü
+                                exchanges.add(ex)
                 
-            # Yfinance'den bulunamazsa investpy'dan dene
-            stocks = investpy.get_stocks(country=country_name)
-            stock_info = stocks[stocks['symbol'].str.upper() == symbol.upper()]
-            if not stock_info.empty:
-                exchange = stock_info.iloc[0].get('exchange', '')
-                if exchange:
-                    return exchange.upper()
-                    
-            return f"{country_name.upper()}_STOCK"
+            # Investpy'dan dene
+            try:
+                stocks = investpy.get_stocks(country=country_name)
+                stock_info = stocks[stocks['symbol'].str.upper() == symbol.upper()]
+                if not stock_info.empty:
+                    for _, row in stock_info.iterrows():
+                        # Exchange sütunundan borsa bilgisi
+                        exchange = row.get('exchange', '')
+                        if exchange:
+                            exchanges.add(exchange.upper())
+                        # Market sütunundan borsa bilgisi
+                        market = row.get('market', '')
+                        if market and market != 'GLOBAL_INDICES':
+                            exchanges.add(market.upper())
+                        # Name sütunundan borsa bilgisi (genelde parantez içinde olur)
+                        name = row.get('name', '')
+                        if name and '(' in name and ')' in name:
+                            exchange_part = name[name.find('(')+1:name.find(')')].strip()
+                            if exchange_part and exchange_part != 'GLOBAL_INDICES':
+                                exchanges.add(exchange_part.upper())
+            except:
+                pass
+            
+            # Hala borsa bulunamadıysa veritabanından o ülkenin endeks borsasını kontrol et
+            if not exchanges:
+                db = Database()
+                conn = db.connect()
+                if conn:
+                    try:
+                        cursor = db.cursor()
+                        if cursor:
+                            cursor.execute("""
+                                SELECT top 1 borsa 
+                                FROM [VARLIK_YONETIM].[dbo].[pariteler] 
+                                WHERE tip = 'INDEX' 
+                                AND ulke = ? 
+                                AND borsa not like '%_INDICES%' 
+                                AND borsa not like '%_STOCK%'
+                            """, (country_name.upper(),))
+                            
+                            result = cursor.fetchone()
+                            if result and result[0]:
+                                exchanges.add(result[0].upper())
+                    except:
+                        pass
+                    finally:
+                        db.disconnect()
+            
+            # Eğer hiç borsa bulunamadıysa ülke_STOCK kullan
+            if not exchanges:
+                return f"{country_name.upper()}_STOCK"
+                
+            # Bulunan tüm borsaları virgülle birleştir
+            return ','.join(sorted(exchanges))
             
         except:
             return f"{country_name.upper()}_STOCK"
@@ -88,7 +146,15 @@ class StockCollector:
             # Önce ülke adını küçük harfe çevir
             country_name = country_name.lower()
             
-            # Investpy'dan ülkenin endekslerini al
+            # Investpy'dan hisse senetlerini al
+            stocks = investpy.get_stocks(country=country_name)
+            if len(stocks) > 0 and 'currency' in stocks.columns:
+                # İlk hissenin para birimini al
+                currency = stocks.iloc[0]['currency'].upper()
+                if currency and currency != 'USD':
+                    return currency
+            
+            # Bulunamazsa endeksleri dene
             indices = investpy.get_indices(country=country_name)
             if len(indices) > 0 and 'currency' in indices.columns:
                 # İlk endeksin para birimini al
