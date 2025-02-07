@@ -28,7 +28,7 @@ class CommodityCollector:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel, ulke 
-                FROM [VARLIK_YONETIM].[dbo].[pariteler] 
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE tip = 'COMMODITY' 
                 AND aktif = 1 
                 AND (veri_var = 1 OR veri_var IS NULL)
@@ -144,7 +144,7 @@ class CommodityCollector:
             # Önce mevcut durumu kontrol et
             cursor.execute("""
                 SELECT veri_var 
-                FROM [VARLIK_YONETIM].[dbo].[pariteler]
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE parite = ?
             """, (symbol,))
             
@@ -156,9 +156,10 @@ class CommodityCollector:
                 if mevcut_durum != yeni_durum:
                     # Sadece değişiklik varsa güncelle
                     cursor.execute("""
-                        UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                        SET veri_var = ?
-                        WHERE parite = ?
+                        UPDATE p
+                        SET p.veri_var = ?
+                        FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                        WHERE p.parite = ?
                     """, (yeni_durum, symbol))
                     
                     # Hemen commit yap
@@ -211,7 +212,7 @@ class CommodityCollector:
                         
                     cursor.execute("""
                         IF NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] 
+                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                             WHERE parite = ? AND [interval] = ? AND tarih = ?
                         )
                         INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
@@ -263,7 +264,7 @@ class CommodityCollector:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT MAX(tarih) as son_tarih
-                    FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                    FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                     WHERE parite = ?
                 """, (symbol,))
                 

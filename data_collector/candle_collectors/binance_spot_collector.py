@@ -30,7 +30,7 @@ class BinanceSpotCollector:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel 
-                FROM [VARLIK_YONETIM].[dbo].[pariteler] 
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE borsa = 'BINANCE' AND tip = 'SPOT' AND aktif = 1
                 AND (veri_var = 1 OR veri_var IS NULL)
             """)
@@ -118,7 +118,7 @@ class BinanceSpotCollector:
             # Önce mevcut durumu kontrol et
             cursor.execute("""
                 SELECT veri_var 
-                FROM [VARLIK_YONETIM].[dbo].[pariteler]
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE parite = ?
             """, (symbol,))
             
@@ -130,9 +130,10 @@ class BinanceSpotCollector:
                 if mevcut_durum != yeni_durum:
                     # Sadece değişiklik varsa güncelle
                     cursor.execute("""
-                        UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                        SET veri_var = ?
-                        WHERE parite = ?
+                        UPDATE p
+                        SET p.veri_var = ?
+                        FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                        WHERE p.parite = ?
                     """, (yeni_durum, symbol))
                     
                     conn.commit()
@@ -162,7 +163,7 @@ class BinanceSpotCollector:
                 try:
                     cursor.execute("""
                         IF NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] 
+                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                             WHERE parite = ? AND [interval] = ? AND tarih = ?
                         )
                         INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
@@ -214,7 +215,7 @@ class BinanceSpotCollector:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT MAX(tarih) as son_tarih
-                    FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                    FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                     WHERE parite = ?
                 """, (symbol,))
                 

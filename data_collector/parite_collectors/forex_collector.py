@@ -65,7 +65,7 @@ class ForexCollector:
             for parite in yeni_pariteler:
                 try:
                     cursor.execute("""
-                        SELECT 1 FROM pariteler 
+                        SELECT 1 FROM pariteler WITH (NOLOCK)
                         WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
                     """, 
                     parite['parite'], parite['borsa'], parite['tip'], 

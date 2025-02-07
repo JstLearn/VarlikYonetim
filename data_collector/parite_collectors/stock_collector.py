@@ -81,7 +81,7 @@ class StockCollector:
                         if cursor:
                             cursor.execute("""
                                 SELECT top 1 borsa 
-                                FROM [VARLIK_YONETIM].[dbo].[pariteler] 
+                                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                                 WHERE tip = 'INDEX' 
                                 AND ulke = ? 
                                 AND borsa not like '%_INDICES%' 
@@ -200,7 +200,7 @@ class StockCollector:
             for parite in yeni_pariteler:
                 try:
                     cursor.execute("""
-                        SELECT 1 FROM pariteler 
+                        SELECT 1 FROM pariteler WITH (NOLOCK)
                         WHERE parite = ? AND borsa = ? AND tip = ? AND aktif = ? AND ulke = ?
                     """, 
                     parite['parite'], parite['borsa'], parite['tip'], 
@@ -269,7 +269,7 @@ class StockCollector:
                             if conn:
                                 cursor = conn.cursor()
                                 cursor.execute("""
-                                    SELECT borsa FROM pariteler 
+                                    SELECT borsa FROM pariteler WITH (NOLOCK)
                                     WHERE parite LIKE ? AND tip = 'STOCK'
                                 """, (f"{yf_symbol}/%",))
                                 
@@ -284,9 +284,10 @@ class StockCollector:
                                             if new_exchange != exchange and '_STOCK' not in new_exchange:
                                                 # Borsa adını ve kayıt tarihini güncelle
                                                 cursor.execute("""
-                                                    UPDATE pariteler 
-                                                    SET borsa = ?, kayit_tarihi = GETDATE()
-                                                    WHERE parite LIKE ? AND tip = 'STOCK'
+                                                    UPDATE p
+                                                    SET p.borsa = ?, p.kayit_tarihi = GETDATE()
+                                                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                                                    WHERE p.parite LIKE ? AND p.tip = 'STOCK'
                                                 """, (new_exchange, f"{yf_symbol}/%"))
                                                 db.commit()
                                                 print(f"{yf_symbol} Hissesi {new_exchange} Borsasında listelendi")

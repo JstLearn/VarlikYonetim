@@ -28,7 +28,7 @@ class StockCollector:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel, ulke 
-                FROM [VARLIK_YONETIM].[dbo].[pariteler] 
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE tip = 'STOCK'
                 AND aktif = 1 
                 AND (veri_var = 1 OR veri_var IS NULL)
@@ -231,10 +231,11 @@ class StockCollector:
             if conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                    SET veri_var = 0
-                    WHERE parite = ?
-                """, (symbol,))
+                    UPDATE p
+                    SET p.veri_var = ?
+                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                    WHERE p.parite = ?
+                """, (0, symbol))
                 conn.commit()
         except Exception as e:
             self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
@@ -266,9 +267,10 @@ class StockCollector:
             # Her durumda güncelle
             yeni_durum = 1 if has_data else 0
             cursor.execute("""
-                UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                SET veri_var = ?
-                WHERE parite = ?
+                UPDATE p
+                SET p.veri_var = ?
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                WHERE p.parite = ?
             """, (yeni_durum, symbol))
             
             # Her zaman commit yap
@@ -307,7 +309,7 @@ class StockCollector:
             # Önce CURRENCY/USD formatında ara
             cursor.execute("""
                 SELECT TOP 1 fiyat
-                FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                 WHERE parite = ? AND borsa = 'FOREX'
                 ORDER BY tarih DESC
             """, (f"{currency}/USD",))
@@ -320,7 +322,7 @@ class StockCollector:
             # Bulunamazsa USD/CURRENCY formatında ara ve tersini al
             cursor.execute("""
                 SELECT TOP 1 fiyat
-                FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                 WHERE parite = ? AND borsa = 'FOREX'
                 ORDER BY tarih DESC
             """, (f"USD/{currency}",))
@@ -362,7 +364,7 @@ class StockCollector:
                     # Önce kaydın var olup olmadığını kontrol et
                     cursor.execute("""
                         SELECT COUNT(*) as count
-                        FROM [VARLIK_YONETIM].[dbo].[kurlar] 
+                        FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                         WHERE parite = ? AND [interval] = ? AND tarih = ?
                     """, (symbol, '1d', tarih))
                     
@@ -390,10 +392,11 @@ class StockCollector:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
                 cursor.execute("""
-                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                    SET veri_var = 1, borsa = ?
-                    WHERE parite = ?
-                """, (exchange, symbol))
+                    UPDATE p
+                    SET p.veri_var = ?
+                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                    WHERE p.parite = ?
+                """, (1, symbol))
                 conn.commit()
                 
             return True
@@ -425,7 +428,7 @@ class StockCollector:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT MAX(tarih) as son_tarih
-                    FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                    FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                     WHERE parite = ?
                 """, (symbol,))
                 

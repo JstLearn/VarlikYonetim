@@ -213,7 +213,7 @@ class IndexCollector:
             for parite in yeni_pariteler:
                 try:
                     cursor.execute("""
-                        SELECT 1 FROM pariteler 
+                        SELECT 1 FROM pariteler WITH (NOLOCK)
                         WHERE parite = ? AND tip = 'INDEX'
                     """, (parite['parite'],))
                     

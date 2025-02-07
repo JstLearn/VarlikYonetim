@@ -29,7 +29,7 @@ class IndexCollector:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT parite, borsa, veriler_guncel, ulke 
-                FROM [VARLIK_YONETIM].[dbo].[pariteler] 
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE tip = 'INDEX' 
                 AND aktif = 1 
                 AND (veri_var = 1 OR veri_var IS NULL)
@@ -145,10 +145,11 @@ class IndexCollector:
             # Her durumda güncelle
             yeni_durum = 1 if has_data else 0
             cursor.execute("""
-                UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                SET veri_var = ?
-                WHERE parite = ?
-            """, (yeni_durum, symbol))
+                UPDATE p
+                SET p.veri_var = ?, p.borsa = ?
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                WHERE p.parite = ?
+            """, (yeni_durum, symbol, symbol))
             
             # Her zaman commit yap
             conn.commit()
@@ -196,7 +197,7 @@ class IndexCollector:
                 
             cursor.execute("""
                 SELECT TOP 1 fiyat
-                FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                 WHERE parite = ? AND borsa = 'FOREX'
                 ORDER BY tarih DESC
             """, (f"{currency}/USD",))
@@ -240,7 +241,7 @@ class IndexCollector:
                         
                     cursor.execute("""
                         IF NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] 
+                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                             WHERE parite = ? AND [interval] = ? AND tarih = ?
                         )
                         INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
@@ -262,10 +263,11 @@ class IndexCollector:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
                 cursor.execute("""
-                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                    SET veri_var = 1, borsa = ?
-                    WHERE parite = ?
-                """, (exchange, symbol))
+                    UPDATE p
+                    SET p.veri_var = ?, p.borsa = ?
+                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                    WHERE p.parite = ?
+                """, (1, exchange, symbol))
                 conn.commit()
                 
             return True
@@ -299,7 +301,7 @@ class IndexCollector:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT MAX(tarih) as son_tarih
-                    FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                    FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                     WHERE parite = ?
                 """, (symbol,))
                 
