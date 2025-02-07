@@ -90,7 +90,7 @@ class StockCollector:
                             
                             result = cursor.fetchone()
                             if result and result[0]:
-                                exchanges.add(result[0].upper())
+                                return result[0].upper()  # Direkt olarak veritabanından gelen borsa adını döndür
                     except:
                         pass
                     finally:
@@ -289,7 +289,7 @@ class StockCollector:
                                                     WHERE parite LIKE ? AND tip = 'STOCK'
                                                 """, (new_exchange, f"{yf_symbol}/%"))
                                                 db.commit()
-                                                print(f"Borsa güncellendi: {yf_symbol} -> {new_exchange}")
+                                                print(f"{yf_symbol} Hissesi {new_exchange} Borsasında listelendi")
                                                 exchange = new_exchange
                                         except:
                                             pass  # Güncelleme başarısız olursa mevcut borsa adını kullan
