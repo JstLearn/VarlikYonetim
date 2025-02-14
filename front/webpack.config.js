@@ -37,5 +37,6 @@ module.exports = {
     static: './dist',
     hot: true,
     historyApiFallback: true,
+    port: 8080
   },
 };
