@@ -63,7 +63,6 @@ data_collector/
 ├── requirements.txt   # Bağımlılıklar
 └── README.md         # Dokümantasyon
 ```
-
 ## Veritabanı Şeması
 
 `pariteler` tablosu:

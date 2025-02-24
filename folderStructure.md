@@ -1,178 +1,71 @@
-# Varlık Yönetim Sistemi (VNNM)
+# VarlikYonetim Proje Klasör Yapısı
 
-Bu proje, kişisel varlık ve borç yönetimi için geliştirilmiş bir web uygulamasıdır.
-
-## Proje Yapısı
+Bu belge, projenin klasör ve dosya yapısının güncel halini yansıtmaktadır.
 
 ```
-/VarlikYonetim                      # Ana proje dizini
-│
-├── /back                           # Backend uygulaması (Node.js/Express)
-│   ├── /config                     # Yapılandırma dosyaları
-│   │   └── db.js                   # MsSQL veritabanı bağlantı yapılandırması
-│   │
-│   ├── /controllers                # API kontrolcüleri
-│   │   ├── index.js               # Kontrolcü export tanımları
-│   │   ├── kullaniciController.js # Kullanıcı işlemleri kontrolcüsü
-│   │   ├── borcController.js      # Borç/gider işlemleri kontrolcüsü
-│   │   ├── gelirController.js     # Gelir işlemleri kontrolcüsü
-│   │   └── varlikController.js    # Varlık işlemleri kontrolcüsü
-│   │
-│   ├── /middleware                 # Express middleware'leri
-│   │   ├── authMiddleware.js      # Kimlik doğrulama middleware'i
-│   │   └── errorHandler.js        # Hata yakalama middleware'i
-│   │
-│   ├── /models                     # Veritabanı modelleri
-│   │   ├── kullaniciModel.js      # Kullanıcı veri modeli
-│   │   ├── borcModel.js          # Borç veri modeli
-│   │   ├── gelirModel.js         # Gelir veri modeli
-│   │   └── varlikModel.js        # Varlık veri modeli
-│   │
-│   ├── /routes                     # API rotaları
-│   │   ├── kullaniciRoutes.js    # Kullanıcı API rotaları
-│   │   ├── borcRoutes.js         # Borç API rotaları
-│   │   ├── gelirRoutes.js        # Gelir API rotaları
-│   │   └── varlikRoutes.js       # Varlık API rotaları
-│   │
-│   ├── /utils                      # Yardımcı araçlar
-│   │   ├── auth.js               # Kimlik doğrulama yardımcıları
-│   │   ├── email.js              # E-posta işlemleri
-│   │   └── validation.js         # Veri doğrulama yardımcıları
-│   │
-│   ├── Main.js                     # Ana giriş noktası ve Express sunucusu
-│   ├── package.json                # Backend bağımlılıkları
-│   └── package-lock.json           # Backend bağımlılık kilitleri
-│
-├── /front                          # Frontend uygulaması (React Native Web)
-│   ├── /assets                     # Statik varlıklar (resim, font vb.)
-│   │
-│   ├── /components                 # UI bileşenleri
-│   │   ├── /Auth                  # Kimlik doğrulama bileşenleri
-│   │   ├── /Buttons              # Özel buton bileşenleri
-│   │   ├── /Common               # Genel kullanım bileşenleri
-│   │   ├── /Forms                # Form bileşenleri
-│   │   ├── /Header              # Başlık ve navigasyon bileşenleri
-│   │   ├── /Layout              # Sayfa düzeni bileşenleri
-│   │   ├── /Modal               # Modal dialog bileşenleri
-│   │   └── /Tables              # Tablo bileşenleri
-│   │
-│   ├── /context                    # React context'leri
-│   │   ├── AuthContext.js        # Kimlik doğrulama context'i
-│   │   └── ThemeContext.js       # Tema context'i
-│   │
-│   ├── /public                     # Statik dosyalar
-│   │   ├── index.html           # Ana HTML şablonu
-│   │   └── assets/              # Resim ve diğer medya dosyaları
-│   │
-│   ├── /services                   # API servisleri
-│   │   ├── api.js               # API istemcisi
-│   │   ├── auth.js              # Kimlik doğrulama servisi
-│   │   └── storage.js           # Yerel depolama servisi
-│   │
-│   ├── /src                        # Kaynak kodlar
-│   │   ├── constants/           # Sabit değerler
-│   │   ├── hooks/              # Özel React hook'ları
-│   │   └── utils/              # Yardımcı fonksiyonlar
-│   │
-│   ├── /styles                     # Stil dosyaları
-│   │   ├── global.css           # Global stiller
-│   │   └── theme.js            # Tema yapılandırması
-│   │
-│   ├── App.js                      # Ana uygulama bileşeni
-│   ├── app.json                    # Uygulama yapılandırması
-│   ├── index.html                  # Ana HTML dosyası
-│   ├── index.web.js                # Web giriş noktası
-│   ├── webpack.config.js           # Webpack yapılandırması
-│   ├── babel.config.js             # Babel yapılandırması
-│   ├── .babelrc                    # Babel ek yapılandırması
-│   ├── package.json                # Frontend bağımlılıkları
-│   └── package-lock.json           # Frontend bağımlılık kilitleri
-│
-├── /data_collector                 # Veri toplama servisi (Python)
-│   ├── /candle_collectors         # Mum verisi toplayıcıları
-│   │   ├── base_collector.py     # Temel toplayıcı sınıfı
-│   │   ├── binance_futures_collector.py # Binance vadeli işlem toplayıcı
-│   │   ├── binance_spot_collector.py # Binance spot toplayıcı
-│   │   ├── forex_collector.py    # Forex veri toplayıcı
-│   │   ├── index_collector.py    # Endeks veri toplayıcı
-│   │   ├── commodity_collector.py # Emtia veri toplayıcı
-│   │   └── stock_collector.py    # Hisse senedi veri toplayıcı
-│   │
-│   ├── /parite_collectors         # Parite toplayıcıları
-│   │   ├── base_collector.py     # Temel parite toplayıcı sınıfı
-│   │   ├── binance_futures_collector.py # Binance vadeli parite toplayıcı
-│   │   ├── binance_spot_collector.py # Binance spot parite toplayıcı
-│   │   ├── forex_collector.py    # Forex parite toplayıcı
-│   │   ├── index_collector.py    # Endeks parite toplayıcı
-│   │   ├── commodity_collector.py # Emtia parite toplayıcı
-│   │   └── stock_collector.py    # Hisse senedi parite toplayıcı
-│   │
-│   ├── /utils                     # Yardımcı araçlar
-│   │   ├── config.py            # Yapılandırma yönetimi
-│   │   ├── database.py          # Veritabanı işlemleri
-│   │   └── logger.py            # Loglama işlemleri
-│   │
-│   ├── /venv                      # Python sanal ortamı
-│   ├── /__pycache__              # Python önbellek klasörü
-│   ├── main.py                    # Ana uygulama giriş noktası
-│   ├── requirements.txt           # Python bağımlılıkları
-│   └── README.md                  # Servis dokümantasyonu
-│
-├── database.md                     # Veritabanı şema dokümantasyonu
-├── folderStructure.md              # Klasör yapısı dokümantasyonu
-├── .env                            # Ortam değişkenleri
-├── .gitignore                      # Git yoksayma listesi
-└── .cursorrules                    # Cursor IDE kuralları
+VarlikYonetim/
+├── .env                           # Ana .env dosyası (veritabanı, API ayarları vb.)
+├── .cursorrules                   # Proje dokümantasyon ve kod geliştirme kuralları
+├── database.md                    # Veritabanı şemasını tanımlayan dokümantasyon dosyası
+├── folderStructure.md             # Bu klasör yapısını tanımlayan dokümantasyon dosyası
+├── back/                          # Backend (Node.js) kaynak kodları
+│   ├── config/                    # Yapılandırma dosyaları (örn: db.js)
+│   ├── controllers/               # API endpoint işlemleri
+│   ├── middleware/                # Ara katman işlevleri
+│   ├── models/                    # Veritabanı modelleri
+│   ├── routes/                    # API rotaları
+│   └── utils/                     # Yardımcı fonksiyonlar ve yardımcı modüller
+├── front/                         # Frontend (React Native Web) kaynak kodları
+│   ├── components/                # UI bileşenleri
+│   ├── constants/                 # Sabit değerler
+│   ├── context/                   # Durum yönetimi (React Context / Zustand)
+│   ├── hooks/                     # Özel React hook'ları
+│   ├── services/                  # API istekleri ve servis dosyaları
+│   ├── styles/                    # Stil dosyaları (CSS, Tailwind configuration vb.)
+│   └── utils/                     # Yardımcı modüller
+└── data_collector/                # Veri Toplama Servisi (Python)
+    ├── collectors/                # Farklı veri kaynaklarından veri toplayan modüller
+    │   ├── binance_futures_collector.py
+    │   ├── binance_spot_collector.py
+    │   ├── candle_collectors/     # Mum (candle) verilerini toplayan modüller
+    │   │   ├── binance_futures_collector.py
+    │   │   ├── binance_spot_collector.py
+    │   │   ├── forex_collector.py
+    │   │   ├── index_collector.py
+    │   │   ├── stock_collector.py
+    │   │   └── commodity_collector.py
+    │   ├── commodity_collector.py # Parite (emtia) verilerini toplayan modül
+    │   ├── forex_collector.py
+    │   ├── index_collector.py
+    │   └── stock_collector.py
+    ├── logs/                      # Log dosyalarının bulunduğu klasör
+    ├── utils/                     # Yardımcı modüller ve konfigürasyon dosyaları
+    │   ├── config.py              # Veri toplama servisinin konfigürasyon dosyası (.env referansı burada)
+    │   ├── database.py            # Veritabanı bağlantı ve sorgu modülü
+    │   └── logger.py              # Loglama işlemleri (varsa)
+    ├── main.py                    # Veri toplama servisinin ana giriş noktası
+    └── requirements.txt           # Python bağımlılıkları listesi
 ```
 
-## Servis Açıklamaları
+## Açıklamalar
 
-### Backend Servisi (Node.js/Express)
-- RESTful API sunucusu
-- MsSQL veritabanı entegrasyonu
-- JWT tabanlı kimlik doğrulama
-- E-posta doğrulama ve şifre sıfırlama
-- Varlık, borç, gelir ve gider yönetimi
+- **.env**  
+  Projenin genel konfigürasyon ayarlarını içerir. (Veritabanı bağlantısı, API anahtarları vs.)
 
-### Frontend Uygulaması (React Native Web)
-- Responsive web arayüzü
-- Context tabanlı durum yönetimi
-- Tema desteği
-- Form validasyonları
-- Gerçek zamanlı veri güncelleme
-- Grafik ve raporlama araçları
+- **.cursorrules**  
+  Proje dokümantasyon ve geliştirme kurallarını içeren dosya.  
+  **Not:** Bu dosyanın yolunu (C:\Users\durak\OneDrive\Code\VarlikYonetim\.cursorrules) her zaman referans alıyoruz.
 
-### Veri Toplama Servisi (Python)
-- Modüler veri toplayıcı mimarisi
-  * Mum verisi toplayıcıları (candle_collectors)
-  * Parite toplayıcıları (parite_collectors)
-  * Ortak utils kütüphanesi
-- Desteklenen veri kaynakları:
-  * Binance Futures ve Spot
-  * Forex kurları
-  * Borsa endeksleri
-  * Emtia fiyatları
-  * Hisse senetleri
-- Özellikler:
-  * Zamanlanmış otomatik veri güncelleme
-  * Veritabanına otomatik kayıt
-  * Hata yönetimi ve loglama
-  * Yapılandırılabilir veri toplama aralıkları
+- **back/**  
+  Node.js tabanlı backend kodları. API endpointleri, veritabanı modelleri, araçlar vb. burada yer alır.
 
-## Teknoloji Yığını
+- **front/**  
+  React Native Web kullanılarak oluşturulan frontend uygulaması. Bileşenler, stiller, servisler ve durum yönetimi modülleri burada bulunur.
 
-- **Backend:** Node.js, Express, MsSQL, JWT
-- **Frontend:** React Native Web, Context API, Axios
-- **Veri Toplama:** Python, ccxt, yfinance, SQLAlchemy
-- **DevOps:** Git
-- **Diğer:** SMTP, REST API
+- **data_collector/**  
+  Python ile yazılan veri toplama servisi. Farklı veri kaynaklarından (örneğin, Binance, Forex, Emtia vs.) veri toplayarak veritabanına işleyen modülleri içerir.  
+  Konfigürasyon ayarları **utils/config.py** üzerinden ana .env dosyasını referans alır.
 
-## Notlar
-
-- Backend servisi Node.js/Express ile geliştirilmiştir ve MsSQL veritabanı kullanmaktadır
-- Frontend React Native Web kullanılarak geliştirilmiştir ve web tarayıcılarında çalışır
-- Veri toplama servisi modüler Python mimarisi ile yeniden yapılandırılmıştır
-- Her veri kaynağı için ayrı toplayıcı modüller ve ortak utils kütüphanesi bulunmaktadır
-- Sistem modüler yapıda tasarlanmış olup, yeni özellikler kolayca eklenebilir
+Bu güncelleme, projenin klasör yapısını en güncel haliyle yansıtmak amacıyla yapılmıştır.
 
 

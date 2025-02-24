@@ -6,19 +6,22 @@ import os
 from dotenv import load_dotenv
 import pathlib
 import logging
+import pyodbc
 
-# .env dosyasının yolunu belirle ve yükle
-env_path = pathlib.Path(__file__).parent.parent / '.env'
+# Ana klasördeki .env dosyasının yolunu belirle ve yükle
+env_path = pathlib.Path(__file__).parent.parent.parent / '.env'  # İki üst klasöre çık
+print(f"Aranan .env dosya yolu: {env_path}")  # Debug için yolu yazdıralım
 load_dotenv(env_path)
 
 # Veritabanı bağlantı ayarları
 DB_CONFIG = {
-    'driver': '{SQL Server Native Client 11.0}',
+    'driver': os.getenv('DB_DRIVER', '{ODBC Driver 17 for SQL Server}'),
     'server': os.getenv('DB_SERVER'),
-    'database': os.getenv('DB_NAME'),
+    'database': os.getenv('DB_DATABASE'),  # .env'deki isimle aynı olmalı
     'user': os.getenv('DB_USER'),
     'password': os.getenv('DB_PASSWORD'),
-    'trusted_connection': 'no'
+    'trusted_connection': 'no',
+    'encrypt': os.getenv('DB_ENCRYPT', 'Optional')
 }
 
 # Konfigürasyon kontrolü
@@ -60,3 +63,17 @@ LOG_CONFIG = {
 
 # Veri çekme sıklığı (saniye)
 UPDATE_INTERVAL = int(os.getenv('UPDATE_INTERVAL', 1))  # varsayılan 1 saat 
+
+# Bağlantı dizesi oluşturma
+conn_str = (
+    f"DRIVER={DB_CONFIG['driver']};"
+    f"SERVER={DB_CONFIG['server']};"
+    f"DATABASE={DB_CONFIG['database']};"
+    f"UID={DB_CONFIG['user']};"
+    f"PWD={DB_CONFIG['password']};"
+    f"Trusted_Connection={DB_CONFIG['trusted_connection']};"
+    f"Encrypt={DB_CONFIG['encrypt']};"
+)
+
+# Global olarak bağlantıyı sakla
+db_connection = pyodbc.connect(conn_str)

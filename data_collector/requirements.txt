@@ -1,20 +1,23 @@
 # Veritabanı
-pyodbc==4.0.39
+pyodbc
 
 # API İstemcileri
-python-binance==1.0.19
-yfinance==0.2.36
-investpy==1.0.8
+python-binance
+yfinance
+investpy
 
 # Web İstekleri
-requests==2.31.0
-beautifulsoup4==4.12.3
-lxml==5.1.0
+requests
 
 # Veri İşleme
-pandas==2.2.1
-numpy==1.26.4
+pandas
 
 # Loglama ve Yardımcı Araçlar
 python-dateutil==2.8.2
-pytz==2024.1 
+pytz==2024.1
+
+# Yeni eklenen paketler
+numpy==1.26.4
+python-dotenv
+beautifulsoup4==4.12.3
+lxml==5.1.0 

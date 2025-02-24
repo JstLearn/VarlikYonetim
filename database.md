@@ -1,9 +1,9 @@
 {
-  "info": "Bu dosya, projenin veritabanı tablolarına ait temel bilgileri içermektedir. Son güncelleme tarihi: 2024-03-20",
+  "info": "Bu dosya, projenin SQL Server veritabanındaki tabloların güncel şemasını içermektedir. Son güncelleme tarihi: 2024-04-12",
   "tables": [
     {
       "tableName": "pariteler",
-      "purpose": "Borsa paritelerini ve özelliklerini saklar.",
+      "purpose": "Borsa ve diğer piyasa paritelerini, özellikleri ile saklar.",
       "columns": [
         {
           "columnName": "ID",
@@ -13,31 +13,31 @@
         },
         {
           "columnName": "parite",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
           "description": "Parite adı (örn: BTC/USDT)."
         },
         {
           "columnName": "borsa",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
-          "description": "Paritenin bulunduğu borsa (örn: BINANCE)."
+          "description": "Paritenin işlem gördüğü borsa (örn: BINANCE, COMMODITY)."
         },
         {
           "columnName": "tip",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
-          "description": "Paritenin tipi (örn: SPOT, FUTURES)."
+          "description": "Paritenin tipi (örn: SPOT, FUTURES, COMMODITY)."
         },
         {
           "columnName": "ulke",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
-          "description": "İlgili ülke."
+          "description": "İlgili ülke bilgisi."
         },
         {
           "columnName": "aciklama",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(500)",
           "allowNull": true,
           "description": "Parite hakkında açıklayıcı bilgi."
         },
@@ -45,31 +45,31 @@
           "columnName": "aktif",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Paritenin aktif olup olmadığı."
+          "description": "Paritenin aktif olup olmadığını belirtir."
         },
         {
           "columnName": "veri_var",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Parite için veri olup olmadığı."
+          "description": "Parite için veri var mı yok mu."
         },
         {
           "columnName": "veriler_guncel",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Parite verilerinin güncel olup olmadığı."
+          "description": "Parite verilerinin güncellik durumu."
         },
         {
           "columnName": "kayit_tarihi",
           "dataType": "datetime",
           "allowNull": false,
-          "description": "Kaydın oluşturulma tarihi."
+          "description": "Kaydın oluşturulma tarihi (varsayılan GETDATE())."
         }
       ]
     },
     {
       "tableName": "kurlar",
-      "purpose": "Döviz veya diğer parite verilerini saklar.",
+      "purpose": "Döviz ve diğer kur çiftlerini saklar.",
       "columns": [
         {
           "columnName": "id",
@@ -79,43 +79,43 @@
         },
         {
           "columnName": "parite",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
-          "description": "Kur çiftinin adı (ör: USD/TRY, EUR/USD vb.)."
+          "description": "Kur çiftinin adı (örn: USD/TRY)."
         },
         {
           "columnName": "interval",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
-          "description": "Kur verisi aralığı (ör: günlük, saatlik vb.)."
+          "description": "Veri aralığı (örn: günlük, saatlik)."
         },
         {
           "columnName": "borsa",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
           "description": "Kurun işlem gördüğü borsa."
         },
         {
           "columnName": "tip",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
-          "description": "Kurun türü (ör: Döviz, Kripto vb.)."
+          "description": "Kur türü (örn: Döviz, Kripto)."
         },
         {
           "columnName": "ulke",
-          "dataType": "nvarchar",
+          "dataType": "nvarchar(50)",
           "allowNull": true,
-          "description": "İlgili ülke ismi (ör: Türkiye, ABD vb.)."
+          "description": "İlgili ülke."
         },
         {
           "columnName": "fiyat",
-          "dataType": "decimal",
+          "dataType": "decimal(18,8)",
           "allowNull": true,
-          "description": "Kurun kapanış fiyatı."
+          "description": "Kapanış fiyatı."
         },
         {
           "columnName": "dolar_karsiligi",
-          "dataType": "decimal",
+          "dataType": "decimal(18,8)",
           "allowNull": true,
           "description": "1 birimin USD cinsinden karşılığı."
         },
@@ -123,304 +123,265 @@
           "columnName": "tarih",
           "dataType": "datetime",
           "allowNull": true,
-          "description": "Kur verisinin ait olduğu tarih."
+          "description": "Verinin ait olduğu tarih."
         },
         {
           "columnName": "kayit_tarihi",
           "dataType": "datetime",
           "allowNull": false,
-          "description": "Verinin sisteme kaydedildiği tarih."
+          "description": "Kaydın sisteme işlendiği tarih (varsayılan GETDATE())."
         }
       ]
     },
     {
       "tableName": "varliklar",
-      "purpose": "Kullanıcıların sahip olduğu varlıkları (alış, satış, kâr/zarar vb.) takip eder.",
+      "purpose": "Kullanıcıların varlık işlemlerini ayrıntılı olarak takip eder.",
       "columns": [
         {
           "columnName": "id",
           "dataType": "bigint",
           "allowNull": false,
-          "description": "Varlık kaydı için benzersiz kimlik (Primary Key).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Varlık için benzersiz kimlik (Primary Key)."
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": false,
-          "description": "Kullanıcı adı veya ID bilgisi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Kullanıcıya ait ID veya ad."
         },
         {
           "columnName": "varlik",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Varlık adı (ör: hisse, coin, ev vb.).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Varlığın adı."
         },
         {
           "columnName": "tur",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Varlığın türü (ör: dijital, gayrimenkul vb.).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Varlık tipi (örn: dijital, gayrimenkul)."
         },
         {
           "columnName": "nerede",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Varlığın bulunduğu yer (ör: borsa, cüzdan vb.).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Varlığın bulunduğu yer (örn: borsa, cüzdan)."
         },
         {
           "columnName": "alis_tarihi",
           "dataType": "datetime",
           "allowNull": true,
-          "description": "Varlığın alındığı tarih.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Varlığın alım tarihi."
         },
         {
           "columnName": "alis_fiyati",
-          "dataType": "numeric",
+          "dataType": "numeric(18,8)",
           "allowNull": true,
-          "description": "Alış fiyatı (genelde USD veya başka para birimi).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Alım fiyatı."
         },
         {
           "columnName": "alis_adedi",
-          "dataType": "numeric",
+          "dataType": "numeric(18,8)",
           "allowNull": true,
-          "description": "Alınan miktar/adet.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Alınan miktar."
         },
         {
           "columnName": "simdi_fiyati_USD",
-          "dataType": "numeric",
+          "dataType": "numeric(18,8)",
           "allowNull": true,
-          "description": "Mevcut fiyatı (USD cinsinden).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Güncel fiyat (USD cinsinden)."
         },
         {
           "columnName": "kar_zarar",
-          "dataType": "numeric",
+          "dataType": "numeric(18,8)",
           "allowNull": true,
-          "description": "Toplam kâr/zarar miktarı (USD bazlı).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Toplam kâr/zarar (USD bazında)."
         },
         {
           "columnName": "kar_zarar_yuzde",
-          "dataType": "numeric",
+          "dataType": "numeric(18,8)",
           "allowNull": true,
-          "description": "Kâr/zarar yüzdesi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Yüzdelik kâr/zarar oranı."
         },
         {
           "columnName": "min_satis_fiyati_USD",
-          "dataType": "numeric",
+          "dataType": "numeric(18,8)",
           "allowNull": true,
-          "description": "Satış için minimum hedef fiyatı (USD).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Minimum satış fiyatı (USD)."
         },
         {
           "columnName": "tarih",
           "dataType": "datetime",
           "allowNull": false,
-          "description": "Kaydın oluşturulma veya güncellenme tarihi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Kayıt tarihi (varsayılan GETDATE())."
         }
       ]
     },
     {
       "tableName": "borclar_giderler",
-      "purpose": "Kullanıcıların mevcut veya planlanmış borç bilgilerini tutar.",
+      "purpose": "Kullanıcıların borç ve gider bilgilerini tutar.",
       "columns": [
         {
           "columnName": "id",
           "dataType": "bigint",
           "allowNull": false,
-          "description": "Borç kaydı için benzersiz kimlik (Primary Key).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Borcun benzersiz ID'si (Primary Key)."
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": false,
-          "description": "Kullanıcı adı veya ID bilgisi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Kullanıcıya ait ID veya ad."
         },
         {
           "columnName": "borc",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Borcun adı/tanımı (ör: Kredi kartı, İhtiyaç kredisi vb.).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Borç tanımı (örn: kredi, fatura)."
         },
         {
           "columnName": "duzenlimi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Borcun düzenli (her ay vb.) ödenip ödenmediğini belirtir.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Borç düzenli mi."
         },
         {
           "columnName": "tutar",
-          "dataType": "numeric",
+          "dataType": "numeric(18,2)",
           "allowNull": true,
-          "description": "Borcun toplam tutarı.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Toplam borç tutarı."
         },
         {
           "columnName": "para_birimi",
-          "dataType": "varchar",
+          "dataType": "varchar(10)",
           "allowNull": true,
-          "description": "Borcun para birimi (ör: TRY, USD).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Borç para birimi (örn: TRY, USD)."
         },
         {
           "columnName": "kalan_taksit",
           "dataType": "int",
           "allowNull": true,
-          "description": "Kalan taksit sayısı.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Kalan taksit sayısı."
         },
         {
           "columnName": "odeme_tarihi",
           "dataType": "datetime",
           "allowNull": true,
-          "description": "Ödeme günü/tarihi.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Son ödeme tarihi."
         },
         {
           "columnName": "faiz_binecekmi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Faizin işleyip işlemeyeceğini belirtir.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Faizin uygulanıp uygulanmayacağı."
         },
         {
           "columnName": "odendi_mi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Borcun ödenip ödenmediğini belirtir.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Borç ödenmiş mi."
         },
         {
           "columnName": "talimat_varmi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Otomatik ödeme talimatının olup olmadığı.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Otomatik ödeme talimatı var mı."
         },
         {
           "columnName": "bagimli_oldugu_gelir",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Bu borcun dayandığı bir gelir kaydına referans.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Borçla ilişkili gelir kaydı."
         },
         {
           "columnName": "tarih",
           "dataType": "datetime",
           "allowNull": false,
-          "description": "Kaydın oluşturulma veya güncellenme tarihi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Kayıt tarihi (varsayılan GETDATE())."
         }
       ]
     },
     {
       "tableName": "gelirler",
-      "purpose": "Kullanıcıların düzenli/düzensiz gelir kayıtlarını tutar.",
+      "purpose": "Kullanıcıların gelir kayıtlarını ayrıntılı olarak saklar.",
       "columns": [
         {
           "columnName": "id",
           "dataType": "bigint",
           "allowNull": false,
-          "description": "Gelir kaydı için benzersiz kimlik (Primary Key).",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Gelir için benzersiz ID (Primary Key)."
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": false,
-          "description": "Kullanıcı adı veya ID bilgisi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Kullanıcıya ait ID veya ad."
         },
         {
           "columnName": "gelir",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Gelirin adı/tanımı (ör: Maaş, ek iş, kira vb.).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Gelir tanımı (örn: maaş, kira)."
         },
         {
           "columnName": "duzenlimi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Gelirin düzenli (her ay vb.) gelip gelmediğini belirtir.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Gelirin düzenli ödeme olup olmadığı."
         },
         {
           "columnName": "tutar",
-          "dataType": "numeric",
+          "dataType": "numeric(18,2)",
           "allowNull": true,
-          "description": "Gelir tutarı.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Gelir tutarı."
         },
         {
           "columnName": "para_birimi",
-          "dataType": "varchar",
+          "dataType": "varchar(10)",
           "allowNull": true,
-          "description": "Gelirin para birimi (ör: TRY, USD).",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Gelirin para birimi (örn: TRY, USD)."
         },
         {
           "columnName": "kalan_taksit",
           "dataType": "int",
           "allowNull": true,
-          "description": "Gelirin taksitle alınması durumunda kalan taksit sayısı.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Taksitli ödemelerde kalan taksit sayısı."
         },
         {
           "columnName": "tahsilat_tarihi",
           "dataType": "datetime",
           "allowNull": true,
-          "description": "Gelirin tahsilat günü/tarihi.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Gelirin tahsil edildiği tarih."
         },
         {
           "columnName": "faiz_binecekmi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Faiz getirisinin olup olmayacağını belirtir.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Faiz getirisi olup olmayacağı."
         },
         {
           "columnName": "alindi_mi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Gelirin tahsil edilip edilmediğini gösterir.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Gelirin alınmış olup olmadığı."
         },
         {
           "columnName": "talimat_varmi",
           "dataType": "bit",
           "allowNull": true,
-          "description": "Otomatik tahsilat talimatı olup olmadığını belirtir.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Otomatik tahsilat talimatı var mı."
         },
         {
           "columnName": "bagimli_oldugu_gider",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Bu gelirin dayandığı bir gider kaydına referans.",
-          "frontend": "kullanıcıdan istiyoruz frontendde olmalı"
+          "description": "Gelirle ilişkili gider kaydı."
         },
         {
           "columnName": "tarih",
           "dataType": "datetime",
           "allowNull": false,
-          "description": "Kaydın oluşturulma veya güncellenme tarihi.",
-          "frontend": "kullanıcıdan istemiyoruz frontendde olmamalı"
+          "description": "Kayıt tarihi (varsayılan GETDATE())."
         }
       ]
     },
@@ -432,17 +393,17 @@
           "columnName": "id",
           "dataType": "bigint",
           "allowNull": false,
-          "description": "Kullanıcı için benzersiz kimlik (Primary Key)."
+          "description": "Kullanıcı için benzersiz ID (Primary Key)."
         },
         {
           "columnName": "kullanici",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
-          "description": "Kullanıcı adı."
+          "description": "Kullanıcının adı."
         },
         {
           "columnName": "sifre",
-          "dataType": "varchar",
+          "dataType": "varchar(150)",
           "allowNull": true,
           "description": "Şifrelenmiş kullanıcı parolası."
         },
@@ -450,47 +411,47 @@
           "columnName": "tarih",
           "dataType": "date",
           "allowNull": false,
-          "description": "Hesabın oluşturulma tarihi."
+          "description": "Hesabın oluşturulma tarihi (varsayılan GETDATE())."
         },
         {
           "columnName": "onaylandi",
           "dataType": "bit",
           "allowNull": false,
-          "description": "Kullanıcı hesabının onaylanıp onaylanmadığı."
+          "description": "Hesabın onay durumu."
         },
         {
           "columnName": "verification_token",
-          "dataType": "varchar",
+          "dataType": "varchar(50)",
           "allowNull": true,
-          "description": "Hesap doğrulama için kullanılan token."
+          "description": "Hesap doğrulama token'ı."
         }
       ]
     },
     {
       "tableName": "istekler",
-      "purpose": "Kullanıcı isteklerini ve önerilerini takip eder.",
+      "purpose": "Kullanıcı istek ve önerilerini takip eder.",
       "columns": [
         {
           "columnName": "id",
           "dataType": "int",
           "allowNull": true,
-          "description": "İstek kaydı için benzersiz kimlik."
+          "description": "İstek kaydı için benzersiz ID."
         },
         {
           "columnName": "kullanici",
-          "dataType": "nchar",
+          "dataType": "nchar(50)",
           "allowNull": true,
-          "description": "İsteği oluşturan kullanıcı."
+          "description": "İsteği yapan kullanıcı."
         },
         {
           "columnName": "istekler",
-          "dataType": "nchar",
+          "dataType": "nchar(500)",
           "allowNull": true,
           "description": "İstek veya öneri içeriği."
         },
         {
           "columnName": "oncelik",
-          "dataType": "nchar",
+          "dataType": "nchar(50)",
           "allowNull": true,
           "description": "İsteğin öncelik seviyesi."
         },
@@ -498,10 +459,139 @@
           "columnName": "date",
           "dataType": "datetime",
           "allowNull": true,
-          "description": "İsteğin oluşturulma tarihi."
+          "description": "İsteğin oluşturulma tarihi (varsayılan GETDATE())."
         }
       ]
     }
   ],
-  "note": "Bu dosya veritabanı şemasının güncel halini içermektedir. Sistem tablosu olan 'sysdiagrams' tablosu dokümantasyona dahil edilmemiştir."
+  "note": "Bu dosya veritabanı şemasının en güncel halini içermektedir. .env dosyasındaki veritabanı bağlantı ayarları (DB_SERVER, DB_DATABASE, DB_USER, DB_PASSWORD) kullanılarak sorgulanmıştır."
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+VERİTABANINI BAŞTAN OLUŞTURMAK
+
+
+-- Veritabanını oluştur
+CREATE DATABASE VARLIK_YONETIM;
+GO
+
+USE VARLIK_YONETIM;
+GO
+
+-- Pariteler tablosu
+CREATE TABLE pariteler (
+    ID int IDENTITY(1,1) PRIMARY KEY,
+    parite nvarchar(50),
+    borsa nvarchar(50),
+    tip nvarchar(50),
+    ulke nvarchar(50),
+    aciklama nvarchar(500),
+    aktif bit,
+    veri_var bit,
+    veriler_guncel bit,
+    kayit_tarihi datetime NOT NULL DEFAULT GETDATE()
+);
+
+-- Kurlar tablosu
+CREATE TABLE kurlar (
+    id bigint IDENTITY(1,1) PRIMARY KEY,
+    parite nvarchar(50),
+    [interval] nvarchar(50),
+    borsa nvarchar(50),
+    tip nvarchar(50),
+    ulke nvarchar(50),
+    fiyat decimal(18,8),
+    dolar_karsiligi decimal(18,8),
+    tarih datetime,
+    kayit_tarihi datetime NOT NULL DEFAULT GETDATE()
+);
+
+-- Varlıklar tablosu
+CREATE TABLE varliklar (
+    id bigint IDENTITY(1,1) PRIMARY KEY,
+    kullanici varchar(150) NOT NULL,
+    varlik varchar(150),
+    tur varchar(150),
+    nerede varchar(150),
+    alis_tarihi datetime,
+    alis_fiyati numeric(18,8),
+    alis_adedi numeric(18,8),
+    simdi_fiyati_USD numeric(18,8),
+    kar_zarar numeric(18,8),
+    kar_zarar_yuzde numeric(18,8),
+    min_satis_fiyati_USD numeric(18,8),
+    tarih datetime NOT NULL DEFAULT GETDATE()
+);
+
+-- Borçlar ve Giderler tablosu
+CREATE TABLE borclar_giderler (
+    id bigint IDENTITY(1,1) PRIMARY KEY,
+    kullanici varchar(150) NOT NULL,
+    borc varchar(150),
+    duzenlimi bit,
+    tutar numeric(18,2),
+    para_birimi varchar(10),
+    kalan_taksit int,
+    odeme_tarihi datetime,
+    faiz_binecekmi bit,
+    odendi_mi bit,
+    talimat_varmi bit,
+    bagimli_oldugu_gelir varchar(150),
+    tarih datetime NOT NULL DEFAULT GETDATE()
+);
+
+-- Gelirler tablosu
+CREATE TABLE gelirler (
+    id bigint IDENTITY(1,1) PRIMARY KEY,
+    kullanici varchar(150) NOT NULL,
+    gelir varchar(150),
+    duzenlimi bit,
+    tutar numeric(18,2),
+    para_birimi varchar(10),
+    kalan_taksit int,
+    tahsilat_tarihi datetime,
+    faiz_binecekmi bit,
+    alindi_mi bit,
+    talimat_varmi bit,
+    bagimli_oldugu_gider varchar(150),
+    tarih datetime NOT NULL DEFAULT GETDATE()
+);
+
+-- Kullanıcılar tablosu
+CREATE TABLE kullanicilar (
+    id bigint IDENTITY(1,1) PRIMARY KEY,
+    kullanici varchar(150),
+    sifre varchar(150),
+    tarih date NOT NULL DEFAULT GETDATE(),
+    onaylandi bit NOT NULL DEFAULT 0,
+    verification_token varchar(50)
+);
+
+-- İstekler tablosu
+CREATE TABLE istekler (
+    id int IDENTITY(1,1) PRIMARY KEY,
+    kullanici nchar(50),
+    istekler nchar(500),
+    oncelik nchar(50),
+    [date] datetime DEFAULT GETDATE()
+);
+
+-- İndeksler
+CREATE INDEX IX_varliklar_kullanici ON varliklar(kullanici);
+CREATE INDEX IX_borclar_giderler_kullanici ON borclar_giderler(kullanici);
+CREATE INDEX IX_gelirler_kullanici ON gelirler(kullanici);
+CREATE INDEX IX_kullanicilar_kullanici ON kullanicilar(kullanici);
+CREATE INDEX IX_pariteler_parite ON pariteler(parite);
+CREATE INDEX IX_kurlar_parite ON kurlar(parite);
+GO
