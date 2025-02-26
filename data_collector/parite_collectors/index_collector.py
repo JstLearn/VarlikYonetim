@@ -232,6 +232,9 @@ class IndexCollector:
                         db.commit()
                         eklenen += 1
                         
+                        # Detaylı loglamayı kaldırıyoruz
+                        # print(f"[{self._get_timestamp()}] Parite: {parite['parite']}, Borsa: {parite['borsa']}, YENİ EKLENDİ")
+                        
                 except Exception as e:
                     print(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
                     continue
@@ -249,6 +252,11 @@ class IndexCollector:
             except Exception as e:
                 print(f"Bağlantı kapatma hatası: {str(e)}")
 
+    def _get_timestamp(self):
+        """Şu anki zamanı [HH:MM:SS] formatında döndürür."""
+        from datetime import datetime
+        return datetime.now().strftime("%H:%M:%S")
+
     def collect_pariteler(self):
         """
         Investpy üzerinden endeksleri getirir ve veritabanına ekler
@@ -261,7 +269,7 @@ class IndexCollector:
             genel_eklenen = 0
             hatali_ulke = 0
             
-            # Toplam endeks sayısını hesapla            
+            # Toplam endeks sayısını hesapla - detaylı loglama yapmıyoruz           
             for country in countries:
                 try:
                     # Ülkenin endekslerini al
@@ -317,6 +325,9 @@ class IndexCollector:
                     hatali_ulke += 1
                     continue
             
+            # İşlem sonunda kısa bir özet log
+            print(f"İndeksler: {genel_toplam} bulundu, {genel_eklenen} yeni eklendi")
+            
             return genel_toplam, genel_eklenen, hatali_ulke
             
         except KeyboardInterrupt:
@@ -325,22 +336,39 @@ class IndexCollector:
         except Exception as e:
             print(f"Genel hata: {str(e)}")
             return 0, 0, 0
-            
+
     def run(self):
         """
         Endeks toplayıcı çalıştırma fonksiyonu
         """
         try:
+            # Başlangıç mesajını yazdır
+            print("==================================================")
+            print("Index Collector başlatılıyor...")
+            
             genel_toplam, genel_eklenen, hatali_ulke = self.collect_pariteler()
-            print(f"Indices: {genel_toplam} endeks bulundu -> {genel_eklenen} yeni eklendi, {hatali_ulke} ülke hatalı")
+            
+            # Sadeleştirilmiş log formatı - dikkat çekmek için çerçeve içinde
+            print("==================================================")
+            print(f"Index: {genel_toplam} parite bulundu -> {genel_eklenen} yeni eklendi")
+            print("==================================================")
+            
         except Exception as e:
             print(f"Endeks toplama hatası: {str(e)}")
 
 if __name__ == "__main__":
     try:
+        print("\n" + "="*50)
+        print("INDEX COLLECTOR BAŞLATILIYOR...")
+        print("="*50 + "\n")
+        
         collector = IndexCollector()
         collector.run()
+        
+        print("\n" + "="*50)
+        print("INDEX COLLECTOR TAMAMLANDI.")
+        print("="*50 + "\n")
     except KeyboardInterrupt:
-        print("Kullanıcı tarafından durduruldu.")
+        print("\nKullanıcı tarafından durduruldu.")
     except Exception as e:
-        print(f"Program hatası: {str(e)}")
+        print(f"\nProgram hatası: {str(e)}")

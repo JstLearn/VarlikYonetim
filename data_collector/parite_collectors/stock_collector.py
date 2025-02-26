@@ -9,14 +9,23 @@ import pandas as pd
 from utils.database import Database
 from bs4 import BeautifulSoup, Tag
 import logging
+import warnings
+import urllib3
+
+# Requests uyarılarını bastır
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
+warnings.simplefilter(action='ignore', category=FutureWarning)
+requests.packages.urllib3.disable_warnings()
 
 # yfinance ve ilgili logger'ları kapat
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+logging.getLogger('requests').setLevel(logging.CRITICAL)
 
 # Diğer logger'ları da kapat
 for name in logging.root.manager.loggerDict:
-    if 'yfinance' in name or 'urllib3' in name:
+    if 'yfinance' in name or 'urllib3' in name or 'requests' in name:
         logging.getLogger(name).setLevel(logging.CRITICAL)
         logging.getLogger(name).propagate = False
 
@@ -33,21 +42,35 @@ class StockCollector:
         
         try:
             # Önce yfinance'den dene
-            stock_ticker = yf.Ticker(symbol)
-            info = stock_ticker.info
-            if info:
-                # Ana borsa
-                if 'exchange' in info:
-                    exchanges.add(info['exchange'].upper())
-                # İkincil borsalar
-                if 'otherExchanges' in info:
-                    other = info['otherExchanges']
-                    if isinstance(other, str):
-                        for ex in other.split(','):
-                            ex = ex.strip().upper()
-                            if ex:  # Boş string kontrolü
-                                exchanges.add(ex)
+            try:
+                # Standart çıktıyı geçici olarak yönlendir, hata mesajlarını gösterme
+                import io
+                import sys
+                original_stderr = sys.stderr
+                sys.stderr = io.StringIO()
                 
+                stock_ticker = yf.Ticker(symbol)
+                info = stock_ticker.info
+                
+                # Standart hata çıktısını geri yükle
+                sys.stderr = original_stderr
+                
+                if info:
+                    # Ana borsa
+                    if 'exchange' in info:
+                        exchanges.add(info['exchange'].upper())
+                    # İkincil borsalar
+                    if 'otherExchanges' in info:
+                        other = info['otherExchanges']
+                        if isinstance(other, str):
+                            for ex in other.split(','):
+                                ex = ex.strip().upper()
+                                if ex:  # Boş string kontrolü
+                                    exchanges.add(ex)
+            except Exception:
+                # Sessizce devam et, hata mesajını gösterme
+                pass
+            
             # Investpy'dan dene
             try:
                 stocks = investpy.get_stocks(country=country_name)
@@ -219,6 +242,11 @@ class StockCollector:
                         db.commit()
                         eklenen += 1
                         
+                        # Yeni eklenen hisse senedi için log mesajı göster
+                        if parite['tip'] == 'STOCK':
+                            sembol = parite['parite'].split('/')[0] if '/' in parite['parite'] else parite['parite']
+                            print(f"{sembol} Hissesi {parite['borsa']} Borsasında listelendi")
+                        
                 except Exception as e:
                     print(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
                     continue
@@ -282,16 +310,20 @@ class StockCollector:
                                         try:
                                             new_exchange = self.get_exchange_info(yf_symbol, country)
                                             if new_exchange != exchange and '_STOCK' not in new_exchange:
+                                                # Borsa adını sadece ilk kısmı alacak şekilde ayır
+                                                display_exchange = new_exchange.split('/')[0] if '/' in new_exchange else new_exchange
+                                                
                                                 # Borsa adını ve kayıt tarihini güncelle
                                                 cursor.execute("""
                                                     UPDATE p
                                                     SET p.borsa = ?, p.kayit_tarihi = GETDATE()
                                                     FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                                                     WHERE p.parite LIKE ? AND p.tip = 'STOCK'
-                                                """, (new_exchange, f"{yf_symbol}/%"))
+                                                """, (display_exchange, f"{yf_symbol}/%"))
                                                 db.commit()
-                                                print(f"{yf_symbol} Hissesi {new_exchange} Borsasında listelendi")
-                                                exchange = new_exchange
+                                                
+                                                print(f"{yf_symbol} Hissesi {display_exchange} Borsasında listelendi")
+                                                exchange = display_exchange
                                         except:
                                             pass  # Güncelleme başarısız olursa mevcut borsa adını kullan
                                     
@@ -305,10 +337,13 @@ class StockCollector:
                             else:
                                 exchange = f"{country_name.upper()}_STOCK"
                                 
+                            # Borsa adını sadece ilk kısmı alacak şekilde ayır
+                            display_exchange = exchange.split('/')[0] if '/' in exchange else exchange
+                                
                             stock_info = [{
                                 'parite': f"{yf_symbol}/{currency}",
                                 'aktif': 1,
-                                'borsa': exchange,
+                                'borsa': display_exchange,
                                 'tip': 'STOCK',
                                 'ulke': country_name,
                                 'aciklama': f"{stock['name']} - {country_name} Stock"

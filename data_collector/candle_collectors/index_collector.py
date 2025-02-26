@@ -160,7 +160,6 @@ class IndexCollector:
                     'exchange': row[1],
                     'ulke': row[3]
                 })
-                self.log(f"Parite: {row[0]}, Borsa: {row[1]}, Güncel: {'Evet' if row[2] else 'Hayır'}")
                 
             return pairs
             
