@@ -83,7 +83,7 @@ class CommodityCollector:
         """Aktif emtia paritelerini getirir"""
         try:
             query = """
-                SELECT parite, borsa, veriler_guncel, ulke 
+                SELECT parite, borsa, veriler_guncel, ulke, veri_var
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE tip = 'COMMODITY' 
                 AND aktif = 1 
@@ -96,10 +96,12 @@ class CommodityCollector:
                 
             pairs = []
             for row in results:
+                veri_var = row[4]
                 pairs.append({
                     'symbol': row[0],
                     'exchange': row[1],
-                    'ulke': row[3]
+                    'ulke': row[3],
+                    'veri_var': veri_var  # veri_var değerini de pairs listesine ekliyoruz
                 })
                 
             return pairs
@@ -109,7 +111,7 @@ class CommodityCollector:
             return []
             
     def collect_data(self, symbol, start_date, end_date=None):
-        """Emtia verilerini yfinance'den toplar"""
+        """Emtia verilerini önce yfinance'den, başarısız olursa investing'den toplar"""
         try:
             # Yahoo Finance sembolünü al
             yahoo_symbol = self.get_yahoo_symbol(symbol)
@@ -127,45 +129,162 @@ class CommodityCollector:
             
             df = pd.DataFrame()  # Boş DataFrame oluştur
             
-            for attempt in range(self.max_retries):
-                try:
-                    # Her denemeden önce kısa bir bekleme
-                    if attempt > 0:
-                        bekleme_suresi = self.retry_delay * (2 if attempt == 1 else 4)  # 2 veya 4 saniye
-                        time.sleep(bekleme_suresi)
-                        self._collect_log_mesaj.append(f"Deneme {attempt + 1}")
-                    
-                    result = yf.download(
-                        tickers=yahoo_symbol,
-                        start=start_str,
-                        end=end_str,
-                        interval='1d',
-                        progress=False,
-                        auto_adjust=True,
-                        prepost=False,
-                        threads=False,
-                        timeout=self.timeout * (attempt + 1)  # Her denemede timeout'u artır
-                    )
-                    
-                    if result is None or result.empty:
-                        if attempt < self.max_retries - 1:
-                            continue
-                        self._collect_log_mesaj.append("Veri alınamadı")
-                        self._update_data_status(symbol, False)
-                        return df
-                        
+            # 1. ADIM: Sadece bir kez yfinance'dan deneme yap
+            try:
+                self.log(f"{symbol} -> yfinance'dan veri alınıyor...")
+                
+                result = yf.download(
+                    tickers=yahoo_symbol,
+                    start=start_str,
+                    end=end_str,
+                    interval='1d',
+                    progress=False,
+                    auto_adjust=True,
+                    prepost=False,
+                    threads=False,
+                    timeout=self.timeout  # Sadece bir kez deneneceği için tek timeout
+                )
+                
+                if result is not None and not result.empty:
                     df = result
-                    break
+                    self._collect_log_mesaj.append("yfinance'dan veri alındı")
+                else:
+                    self._collect_log_mesaj.append("yfinance'dan veri alınamadı")
+                    # yfinance başarısız oldu, investing'e geçilecek
+                    raise Exception("yfinance'dan veri alınamadı")
                     
-                except Exception as e:
-                    if attempt < self.max_retries - 1:
-                        continue
-                    self._collect_log_mesaj.append(f"Hata: {str(e)}")
+            except Exception as e:
+                # 2. ADIM: yfinance başarısız olduysa investing.com'u dene
+                try:
+                    self.log(f"{symbol} -> investing.com'dan veri alınıyor...")
+                    
+                    try:
+                        import investpy
+                    except ImportError:
+                        self._collect_log_mesaj.append("investpy modülü yüklü değil. 'pip install investpy' komutu ile yükleyebilirsiniz.")
+                        self._update_data_status(symbol, False)
+                        return pd.DataFrame()
+                    
+                    # Sembolü investing.com formatına çevir
+                    # Örnek: "GOLD/USD" -> "Gold" ya da benzer bir formata
+                    investing_symbol = None
+                    
+                    if "/USD" in symbol:
+                        # "/USD" içeren sembollerin başındaki kısmını al
+                        commodity_name = symbol.split('/')[0]
+                        
+                        # Özel durum kontrolleri - Investing.com formatları
+                        if commodity_name == "GOLD":
+                            investing_symbol = "Gold"
+                        elif commodity_name == "SILVER":
+                            investing_symbol = "Silver"
+                        elif commodity_name == "COPPER":
+                            investing_symbol = "Copper"
+                        elif commodity_name == "PALLADIUM":
+                            investing_symbol = "Palladium"
+                        elif commodity_name == "PLATINUM":
+                            investing_symbol = "Platinum"
+                        elif commodity_name == "CRUDE_OIL":
+                            investing_symbol = "Crude Oil WTI"
+                        elif commodity_name == "CRUDE_OIL_WTI":
+                            investing_symbol = "Crude Oil WTI"
+                        elif commodity_name == "BRENT_OIL":
+                            investing_symbol = "Brent Oil"
+                        elif commodity_name == "NATURAL_GAS":
+                            investing_symbol = "Natural Gas"
+                        elif commodity_name == "HEATING_OIL":
+                            investing_symbol = "Heating Oil"
+                        elif commodity_name == "GASOLINE_RBOB":
+                            investing_symbol = "Gasoline RBOB"
+                        elif commodity_name == "US_COFFEE_C":
+                            investing_symbol = "Coffee"
+                        elif commodity_name == "US_COCOA":
+                            investing_symbol = "Cocoa"
+                        elif commodity_name == "US_SUGAR":
+                            investing_symbol = "Sugar"
+                        elif commodity_name == "US_COTTON":
+                            investing_symbol = "Cotton"
+                        elif commodity_name == "US_CORN":
+                            investing_symbol = "Corn"
+                        elif commodity_name == "US_WHEAT":
+                            investing_symbol = "Wheat"
+                        elif commodity_name == "US_SOYBEAN" or commodity_name == "US_SOYBEANS":
+                            investing_symbol = "Soybeans"
+                        elif commodity_name == "LIVE_CATTLE":
+                            investing_symbol = "Live Cattle"
+                        elif commodity_name == "LEAN_HOGS":
+                            investing_symbol = "Lean Hogs"
+                        elif commodity_name == "ROUGH_RICE":
+                            investing_symbol = "Rough Rice"
+                        elif commodity_name == "LUMBER":
+                            investing_symbol = "Lumber"
+                        elif commodity_name == "ALUMINUM":
+                            investing_symbol = "Aluminum"
+                        elif commodity_name == "ZINC":
+                            investing_symbol = "Zinc"
+                        elif commodity_name == "LEAD":
+                            investing_symbol = "Lead"
+                        elif commodity_name == "NICKEL":
+                            investing_symbol = "Nickel"
+                        elif commodity_name == "TIN":
+                            investing_symbol = "Tin"
+                        # Eğer doğrudan eşleşen yoksa, log mesajı ekle
+                        else:
+                            self._collect_log_mesaj.append(f"Bilinmeyen emtia: {commodity_name}")
+                    
+                    if investing_symbol:
+                        # investing.com'dan tarihleri istenen formatta ayarla
+                        from_date = start_date.strftime('%d/%m/%Y')
+                        to_date = (end_date or datetime.now(timezone.utc)).strftime('%d/%m/%Y')
+                        
+                        # investing.com'dan veriyi çek
+                        try:
+                            self.log(f"{symbol} -> Investing.com'dan '{investing_symbol}' olarak veri çekiliyor...")
+                            result = investpy.get_commodity_historical_data(
+                                commodity=investing_symbol,
+                                from_date=from_date,
+                                to_date=to_date
+                            )
+                            
+                            if result is not None and not result.empty:
+                                # Sütun isimlerini yfinance ile uyumlu hale getir
+                                result = result.rename(columns={
+                                    'Open': 'open',
+                                    'High': 'high',
+                                    'Low': 'low',
+                                    'Close': 'close',
+                                    'Volume': 'volume' if 'Volume' in result.columns else None
+                                })
+                                # Volume yoksa ekle
+                                if 'volume' not in result.columns or result['volume'].isnull().all():
+                                    result['volume'] = 0
+                                    
+                                df = result
+                                self._collect_log_mesaj.append(f"investing.com'dan '{investing_symbol}' verisi alındı ({len(df)} kayıt)")
+                            else:
+                                self._collect_log_mesaj.append(f"investing.com'dan '{investing_symbol}' verisi alınamadı (boş DataFrame)")
+                                # Her iki kaynaktan da veri alınamadı
+                                self._update_data_status(symbol, False)
+                                return pd.DataFrame()
+                        except investpy.errors.InvalidParameterError:
+                            self._collect_log_mesaj.append(f"Geçersiz parametre: '{investing_symbol}' investing.com'da bulunamadı")
+                            self._update_data_status(symbol, False)
+                            return pd.DataFrame()
+                        except Exception as inv_err:
+                            self._collect_log_mesaj.append(f"investing.com hatası: {str(inv_err)}")
+                            self._update_data_status(symbol, False)
+                            return pd.DataFrame()
+                    else:
+                        self._collect_log_mesaj.append(f"Sembol dönüşümü yapılamadı: {symbol}")
+                        # Sembol dönüşümü yapılamadıysa bir sonraki kaynağa geç
+                        self._update_data_status(symbol, False)
+                        return pd.DataFrame()
+                        
+                except Exception as e2:
+                    self._collect_log_mesaj.append(f"investing.com hatası: {str(e2)}")
+                    # Her iki kaynaktan da veri alınamadı
                     self._update_data_status(symbol, False)
-                    return df
-                finally:
-                    # Her denemeden sonra kısa bir bekleme
-                    time.sleep(0.2)  # 200ms bekleme
+                    return pd.DataFrame()
             
             # Logging'i geri aç
             self.logger.disabled = False
@@ -175,13 +294,15 @@ class CommodityCollector:
                 self._update_data_status(symbol, False)
                 return df
             
-            df = df.rename(columns={
-                'Open': 'open',
-                'High': 'high',
-                'Low': 'low',
-                'Close': 'close',
-                'Volume': 'volume'
-            })
+            # DataFrame içinde yfinance sütunları varsa yeniden adlandır
+            if 'Open' in df.columns:
+                df = df.rename(columns={
+                    'Open': 'open',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Close': 'close',
+                    'Volume': 'volume'
+                })
             
             required_columns = ['open', 'high', 'low', 'close']
             if not all(col in df.columns for col in required_columns):
@@ -217,6 +338,12 @@ class CommodityCollector:
             row = self.db.fetch_one(query, (symbol,))
             if row:
                 mevcut_durum = row[0]
+                
+                # Eğer veri_var = 1 ise ve has_data = False olsa bile, veri_var değerini 1 olarak koru
+                if mevcut_durum == 1 and not has_data:
+                    self.log(f"{symbol} -> Veri alınamadı fakat veri_var = 1 olarak korundu")
+                    return mevcut_durum
+                
                 yeni_durum = 1 if has_data else 0
                 
                 if mevcut_durum != yeni_durum:
@@ -242,6 +369,28 @@ class CommodityCollector:
     def save_candles(self, symbol, df, ulke):
         """Mum verilerini veritabanına kaydeder"""
         if df.empty:
+            # Mevcut veri_var değerini kontrol et
+            check_query = """
+                SELECT veri_var 
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
+                WHERE parite = ?
+            """
+            row = self.db.fetch_one(check_query, (symbol,))
+            
+            # Eğer veri_var zaten 1 ise, değiştirme
+            if row and row[0] == 1:
+                self.log(f"{symbol} -> Veri alınamadı fakat veri_var = 1 olarak korundu")
+                return False
+            
+            # Eğer veri_var 1 değilse (0 veya NULL), 0 olarak güncelle
+            update_query = """
+                UPDATE p
+                SET p.veri_var = 0
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                WHERE p.parite = ?
+            """
+            if self.db.execute_non_query(update_query, (symbol,)):
+                self.log(f"{symbol} -> Veri alınamadı, veri_var = 0 olarak güncellendi")
             return False
             
         try:
@@ -255,31 +404,58 @@ class CommodityCollector:
                     if dolar_karsiligi is None:
                         self._collect_log_mesaj.append("Dolar karşılığı hesaplanamadı")
                         continue
-                        
-                    insert_query = """
-                        IF NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
-                            WHERE parite = ? AND [interval] = ? AND tarih = ?
-                        )
-                        INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
-                            parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    
+                    # Tarih kontrolünü DAY_HOUR olarak değil, sadece gün olarak kontrol et
+                    check_query = """
+                        SELECT COUNT(*) as count 
+                        FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
+                        WHERE parite = ? 
+                        AND [interval] = ? 
+                        AND CONVERT(date, tarih) = CONVERT(date, ?)
                     """
                     
-                    params = (
-                        symbol, '1d', tarih,
-                        symbol, '1d', tarih, fiyat, dolar_karsiligi, 'COMMODITY', 'COMMODITY', ulke
-                    )
+                    check_params = (symbol, '1d', tarih)
+                    row_count = self.db.fetch_one(check_query, check_params)
                     
-                    if self.db.execute_non_query(insert_query, params):
-                        kayit_sayisi += 1
+                    # Eğer o gün için kayıt yoksa ekle
+                    if row_count and row_count[0] == 0:
+                        insert_query = """
+                            INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
+                                parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """
+                        
+                        params = (
+                            symbol, '1d', tarih, fiyat, dolar_karsiligi, 'COMMODITY', 'COMMODITY', ulke
+                        )
+                        
+                        if self.db.execute_non_query(insert_query, params):
+                            kayit_sayisi += 1
+                    # Eğer o gün için kayıt varsa güncelle (opsiyonel)
+                    elif row_count and row_count[0] > 0:
+                        # Kayıt var, güncelleme yapılmasını istiyorsanız buraya güncelleme sorgusu eklenebilir
+                        # Bu örnekte güncelleme yapmıyoruz, çünkü günlük verilerin değişmemesi gerekir
+                        pass
                     
                 except Exception as e:
                     self._collect_log_mesaj.append(f"Kayıt hatası ({tarih}): {str(e)}")
                     continue
+            
+            # Veri erişimi başarılı olduğunda (df boş değil), veri_var değerini 1 olarak güncelle
+            # Bu, yeni kayıt olmasa bile, veriye erişilebildiğini gösterir
+            update_query = """
+                UPDATE p
+                SET p.veri_var = 1
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                WHERE p.parite = ?
+            """
+            if self.db.execute_non_query(update_query, (symbol,)):
+                self._collect_log_mesaj.append("Parite veri durumu aktif edildi (veri_var = 1)")
                     
             if kayit_sayisi > 0:
                 self._collect_log_mesaj.append(f"{kayit_sayisi} yeni kayıt")
+            else:
+                self._collect_log_mesaj.append("Yeni kayıt eklenmedi (zaten güncel)")
                 
             if self._collect_log_mesaj:
                 self.log(f"{symbol} -> " + " | ".join(self._collect_log_mesaj))
@@ -288,6 +464,29 @@ class CommodityCollector:
             
         except Exception as e:
             self.log(f"{symbol} -> Veri kaydetme hatası: {str(e)}")
+            
+            # Mevcut veri_var değerini kontrol et
+            check_query = """
+                SELECT veri_var 
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
+                WHERE parite = ?
+            """
+            row = self.db.fetch_one(check_query, (symbol,))
+            
+            # Eğer veri_var zaten 1 ise, değiştirme
+            if row and row[0] == 1:
+                self.log(f"{symbol} -> Hata oluştu fakat veri_var = 1 olarak korundu")
+                return False
+                
+            # Hata durumunda veri_var değerini 0 yap (eğer 1 değilse)
+            update_query = """
+                UPDATE p
+                SET p.veri_var = 0
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                WHERE p.parite = ?
+            """
+            self.db.execute_non_query(update_query, (symbol,))
+            self.log(f"{symbol} -> Hata nedeniyle veri_var = 0 olarak güncellendi")
             return False
             
     def run(self):
@@ -304,6 +503,7 @@ class CommodityCollector:
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
+            veri_var = pair.get('veri_var')  # veri_var değerini alıyoruz
             log_mesaj = []
             
             try:
@@ -316,19 +516,54 @@ class CommodityCollector:
                 row = self.db.fetch_one(query, (symbol,))
                 son_tarih = row[0] if row and row[0] else None
                 
-                if son_tarih is None:
-                    veriler = self.collect_data(symbol, self.baslangic_tarihi)
+                # Bugünün ve dünün başlangıcı
+                simdi = datetime.now(timezone.utc)
+                bugun = simdi.replace(hour=0, minute=0, second=0, microsecond=0)
+                dun = bugun - timedelta(days=1)
+                
+                # Eğer son tarih varsa, sadece gün kısmını al
+                if son_tarih is not None:
+                    son_guncelleme_gunu = son_tarih.replace(hour=0, minute=0, second=0, microsecond=0)
+                    
+                    # Eğer son güncelleme tarihi bugünse, bu veriyi atla
+                    if son_guncelleme_gunu.date() == bugun.date():
+                        self.log(f"{symbol} -> Veriler zaten bugün için güncel (Son güncelleme: {son_guncelleme_gunu.date()})")
+                        continue
+                    
+                    # Eğer son güncelleme dünse, bugünün verileri henüz tam olmayabilir, atla
+                    if son_guncelleme_gunu.date() == dun.date():
+                        self.log(f"{symbol} -> Dünün verileri güncel, bugünün verileri henüz işlenmeyecek (Son güncelleme: {son_guncelleme_gunu.date()})")
+                        continue
+                
+                # Eğer veri_var = 1 ise ve son tarih bugün veya dün DEĞİLSE, verileri al
+                if veri_var == 1 and son_tarih is not None:
+                    # Eğer son güncelleme günü bugün veya dün değilse, dünün verilerini al
+                    if son_guncelleme_gunu.date() < dun.date():
+                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme_gunu.date()}, dünün verileri alınacak")
+                        veriler = self.collect_data(
+                            symbol,
+                            son_guncelleme_gunu + timedelta(days=1),  # Son güncellemeden sonraki gün
+                            dun  # Bugün değil dünün sonuna kadar
+                        )
+                        if not veriler.empty:
+                            self.save_candles(symbol, veriler, ulke)
+                    
+                # Hiç veri yoksa başlangıç tarihinden itibaren dünün sonuna kadar verileri al
+                elif son_tarih is None:
+                    self.log(f"{symbol} -> Hiç veri yok, başlangıçtan dünün sonuna kadar alınacak")
+                    veriler = self.collect_data(symbol, self.baslangic_tarihi, dun)
                     if not veriler.empty:
                         self.save_candles(symbol, veriler, ulke)
+                # Normal durum: Son güncelleme tarihinden sonraki verileri dünün sonuna kadar al
                 else:
-                    simdi = datetime.now(timezone.utc)
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
                     
-                    if son_guncelleme.date() < simdi.date():
+                    if son_guncelleme.date() < dun.date():
+                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün sonuna kadar veriler alınacak")
                         veriler = self.collect_data(
                             symbol,
                             son_guncelleme + timedelta(days=1),
-                            simdi
+                            dun  # Bugün değil dünün sonuna kadar
                         )
                         if not veriler.empty:
                             self.save_candles(symbol, veriler, ulke)

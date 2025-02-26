@@ -27,7 +27,7 @@ class ForexCollector:
                 
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT parite, borsa, veriler_guncel, ulke 
+                SELECT parite, borsa, veriler_guncel, ulke, veri_var
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE borsa = 'FOREX' AND tip = 'SPOT' 
                 AND aktif = 1 
@@ -38,10 +38,11 @@ class ForexCollector:
             for row in cursor.fetchall():
                 pairs.append({
                     'symbol': row[0],
-                    'exchange': row[1],
-                    'ulke': row[3]
+                    'exchange': row[1] if row[1] else 'FOREX',
+                    'ulke': row[3],
+                    'veri_var': row[4]  # veri_var değerini de pairs listesine ekliyoruz
                 })
-            
+                
             if pairs:
                 self.log(f"Toplam {len(pairs)} Forex çifti işlenecek")
                 
@@ -50,6 +51,14 @@ class ForexCollector:
         except Exception as e:
             self.log(f"Hata: Forex pariteleri alınamadı - {str(e)}")
             return []
+        finally:
+            try:
+                if cursor:
+                    cursor.close()
+                if conn:
+                    conn.close()
+            except:
+                pass
             
     def collect_data(self, symbol, start_date, end_date=None):
         """Forex verilerini toplar"""
@@ -365,6 +374,7 @@ class ForexCollector:
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
+            veri_var = pair.get('veri_var')  # veri_var değerini alıyoruz
             
             try:
                 # Son kayıt tarihini kontrol et
@@ -386,26 +396,57 @@ class ForexCollector:
                 cursor.close()
                 conn.close()
                 
-                # Bugünün tarihini al
+                # Bugünün ve dünün tarihini al
                 simdi = datetime.now()
+                bugun = simdi.replace(hour=0, minute=0, second=0, microsecond=0)
+                dun = bugun - timedelta(days=1)
                 
-                if son_tarih is None:
-                    # Hiç veri yoksa başlangıç tarihinden itibaren al
+                # Eğer son tarih varsa, gün kısmını al
+                if son_tarih is not None:
+                    son_guncelleme_gunu = son_tarih.replace(hour=0, minute=0, second=0, microsecond=0)
+                    
+                    # Eğer son güncelleme bugünse, bu veriyi atla
+                    if son_guncelleme_gunu.date() == bugun.date():
+                        self.log(f"{symbol} -> Veriler zaten bugün için güncel (Son güncelleme: {son_guncelleme_gunu.date()})")
+                        continue
+                    
+                    # Eğer son güncelleme dünse, bugünün verileri henüz tam olmayabilir, atla
+                    if son_guncelleme_gunu.date() == dun.date():
+                        self.log(f"{symbol} -> Dünün verileri güncel, bugünün verileri henüz işlenmeyecek (Son güncelleme: {son_guncelleme_gunu.date()})")
+                        continue
+                
+                # Eğer veri_var = 1 ise ve son tarih bugün veya dün DEĞİLSE, verileri güncelle
+                if veri_var == 1 and son_tarih is not None:
+                    # Eğer son güncelleme günü bugün veya dün değilse, dünün verilerini al
+                    if son_guncelleme_gunu.date() < dun.date():
+                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme_gunu.date()}, dünün verilerine kadar alınacak")
+                        veriler, has_data = self.collect_data(
+                            symbol,
+                            son_guncelleme_gunu + timedelta(days=1),  # Son güncellemeden sonraki gün
+                            dun  # En fazla dünün sonuna kadar
+                        )
+                        if has_data:
+                            self.save_candles(symbol, veriler, ulke)
+                
+                elif son_tarih is None:
+                    # Hiç veri yoksa başlangıç tarihinden itibaren dünün sonuna kadar al
+                    self.log(f"{symbol} -> Hiç veri yok, başlangıçtan dünün sonuna kadar alınacak")
                     baslangic = self.baslangic_tarihi
-                    if baslangic.date() > simdi.date():
-                        baslangic = simdi
-                    veriler, has_data = self.collect_data(symbol, baslangic, simdi)
+                    if baslangic.date() > dun.date():
+                        baslangic = dun
+                    veriler, has_data = self.collect_data(symbol, baslangic, dun)
                     if has_data:
                         self.save_candles(symbol, veriler, ulke)
                 else:
-                    # Son tarihten sonraki verileri al
+                    # Son tarihten sonraki verileri dünün sonuna kadar al
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time())
                     
-                    if son_guncelleme.date() < simdi.date():
+                    if son_guncelleme.date() < dun.date():
+                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün sonuna kadar veriler alınacak")
                         baslangic = son_guncelleme + timedelta(days=1)
-                        if baslangic.date() > simdi.date():
-                            baslangic = simdi
-                        veriler, has_data = self.collect_data(symbol, baslangic, simdi)
+                        if baslangic.date() > dun.date():
+                            baslangic = dun
+                        veriler, has_data = self.collect_data(symbol, baslangic, dun)
                         if has_data:
                             self.save_candles(symbol, veriler, ulke)
                     else:

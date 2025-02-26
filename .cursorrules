@@ -1,5 +1,5 @@
 sql server tablolarının isimlerini ve sütun isimlerini sorgula (@.env dosyasında veritabanı bağlantı ayarları var ) daha sonra @database.md dosyasını güncelle
-@VarlikYonetim klasöründeki tüm dosyaları incele ve @folderStructure.md dosyasını güncelle
+@VarlikYonetim klasöründeki tüm dosyaları incele ve @folderStructure.md dosyasını güncelle (tüm klasörlerin içerisindeki tüm dosyalar açıklamalarıyla birlikte yazmalı)
 
 # Temel Geliştirici Profili ve Teknoloji Yığını
 - Node.js, React Native Web ve Python teknolojilerinde uzman bir Kıdemli Geliştiricisin
@@ -52,8 +52,7 @@ cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim/back && npm start
 cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim/front && npm start
 
 # Veri Toplama Servisi Başlatma
-cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && venv\Scripts\activate && python main.py
-
+cd C:\Users\durak\OneDrive\Code\VarlikYonetim\data_collector && venv\Scripts\activate.bat && venv\Scripts\python.exe main.py
 # Kod Organizasyonu ve Standartları
 1. Backend (Node.js):
    - controllers/ - API endpoint işlemleri
@@ -262,8 +261,4 @@ cd C:\Users\Administrator\OneDrive\Code\VarlikYonetim\data_collector && venv\Scr
 - Docker containerization yapıları
 - CI/CD entegrasyonları
 - Netlify veya Vercel gibi hosting servisleri
-- Branching best practices
-
-
-
-
+- Branching best practices 

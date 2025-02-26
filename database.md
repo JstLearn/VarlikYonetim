@@ -1,597 +1,165 @@
-{
-  "info": "Bu dosya, projenin SQL Server veritabanındaki tabloların güncel şemasını içermektedir. Son güncelleme tarihi: 2024-04-12",
-  "tables": [
-    {
-      "tableName": "pariteler",
-      "purpose": "Borsa ve diğer piyasa paritelerini, özellikleri ile saklar.",
-      "columns": [
-        {
-          "columnName": "ID",
-          "dataType": "int",
-          "allowNull": false,
-          "description": "Parite kaydı için benzersiz kimlik (Primary Key)."
-        },
-        {
-          "columnName": "parite",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "Parite adı (örn: BTC/USDT)."
-        },
-        {
-          "columnName": "borsa",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "Paritenin işlem gördüğü borsa (örn: BINANCE, COMMODITY)."
-        },
-        {
-          "columnName": "tip",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "Paritenin tipi (örn: SPOT, FUTURES, COMMODITY)."
-        },
-        {
-          "columnName": "ulke",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "İlgili ülke bilgisi."
-        },
-        {
-          "columnName": "aciklama",
-          "dataType": "nvarchar(500)",
-          "allowNull": true,
-          "description": "Parite hakkında açıklayıcı bilgi."
-        },
-        {
-          "columnName": "aktif",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Paritenin aktif olup olmadığını belirtir."
-        },
-        {
-          "columnName": "veri_var",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Parite için veri var mı yok mu."
-        },
-        {
-          "columnName": "veriler_guncel",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Parite verilerinin güncellik durumu."
-        },
-        {
-          "columnName": "kayit_tarihi",
-          "dataType": "datetime",
-          "allowNull": false,
-          "description": "Kaydın oluşturulma tarihi (varsayılan GETDATE())."
-        }
-      ]
-    },
-    {
-      "tableName": "kurlar",
-      "purpose": "Döviz ve diğer kur çiftlerini saklar.",
-      "columns": [
-        {
-          "columnName": "id",
-          "dataType": "bigint",
-          "allowNull": false,
-          "description": "Kur kaydı için benzersiz kimlik (Primary Key)."
-        },
-        {
-          "columnName": "parite",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "Kur çiftinin adı (örn: USD/TRY)."
-        },
-        {
-          "columnName": "interval",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "Veri aralığı (örn: günlük, saatlik)."
-        },
-        {
-          "columnName": "borsa",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "Kurun işlem gördüğü borsa."
-        },
-        {
-          "columnName": "tip",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "Kur türü (örn: Döviz, Kripto)."
-        },
-        {
-          "columnName": "ulke",
-          "dataType": "nvarchar(50)",
-          "allowNull": true,
-          "description": "İlgili ülke."
-        },
-        {
-          "columnName": "fiyat",
-          "dataType": "decimal(18,8)",
-          "allowNull": true,
-          "description": "Kapanış fiyatı."
-        },
-        {
-          "columnName": "dolar_karsiligi",
-          "dataType": "decimal(18,8)",
-          "allowNull": true,
-          "description": "1 birimin USD cinsinden karşılığı."
-        },
-        {
-          "columnName": "tarih",
-          "dataType": "datetime",
-          "allowNull": true,
-          "description": "Verinin ait olduğu tarih."
-        },
-        {
-          "columnName": "kayit_tarihi",
-          "dataType": "datetime",
-          "allowNull": false,
-          "description": "Kaydın sisteme işlendiği tarih (varsayılan GETDATE())."
-        }
-      ]
-    },
-    {
-      "tableName": "varliklar",
-      "purpose": "Kullanıcıların varlık işlemlerini ayrıntılı olarak takip eder.",
-      "columns": [
-        {
-          "columnName": "id",
-          "dataType": "bigint",
-          "allowNull": false,
-          "description": "Varlık için benzersiz kimlik (Primary Key)."
-        },
-        {
-          "columnName": "kullanici",
-          "dataType": "varchar(150)",
-          "allowNull": false,
-          "description": "Kullanıcıya ait ID veya ad."
-        },
-        {
-          "columnName": "varlik",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Varlığın adı."
-        },
-        {
-          "columnName": "tur",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Varlık tipi (örn: dijital, gayrimenkul)."
-        },
-        {
-          "columnName": "nerede",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Varlığın bulunduğu yer (örn: borsa, cüzdan)."
-        },
-        {
-          "columnName": "alis_tarihi",
-          "dataType": "datetime",
-          "allowNull": true,
-          "description": "Varlığın alım tarihi."
-        },
-        {
-          "columnName": "alis_fiyati",
-          "dataType": "numeric(18,8)",
-          "allowNull": true,
-          "description": "Alım fiyatı."
-        },
-        {
-          "columnName": "alis_adedi",
-          "dataType": "numeric(18,8)",
-          "allowNull": true,
-          "description": "Alınan miktar."
-        },
-        {
-          "columnName": "simdi_fiyati_USD",
-          "dataType": "numeric(18,8)",
-          "allowNull": true,
-          "description": "Güncel fiyat (USD cinsinden)."
-        },
-        {
-          "columnName": "kar_zarar",
-          "dataType": "numeric(18,8)",
-          "allowNull": true,
-          "description": "Toplam kâr/zarar (USD bazında)."
-        },
-        {
-          "columnName": "kar_zarar_yuzde",
-          "dataType": "numeric(18,8)",
-          "allowNull": true,
-          "description": "Yüzdelik kâr/zarar oranı."
-        },
-        {
-          "columnName": "min_satis_fiyati_USD",
-          "dataType": "numeric(18,8)",
-          "allowNull": true,
-          "description": "Minimum satış fiyatı (USD)."
-        },
-        {
-          "columnName": "tarih",
-          "dataType": "datetime",
-          "allowNull": false,
-          "description": "Kayıt tarihi (varsayılan GETDATE())."
-        }
-      ]
-    },
-    {
-      "tableName": "borclar_giderler",
-      "purpose": "Kullanıcıların borç ve gider bilgilerini tutar.",
-      "columns": [
-        {
-          "columnName": "id",
-          "dataType": "bigint",
-          "allowNull": false,
-          "description": "Borcun benzersiz ID'si (Primary Key)."
-        },
-        {
-          "columnName": "kullanici",
-          "dataType": "varchar(150)",
-          "allowNull": false,
-          "description": "Kullanıcıya ait ID veya ad."
-        },
-        {
-          "columnName": "borc",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Borç tanımı (örn: kredi, fatura)."
-        },
-        {
-          "columnName": "duzenlimi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Borç düzenli mi."
-        },
-        {
-          "columnName": "tutar",
-          "dataType": "numeric(18,2)",
-          "allowNull": true,
-          "description": "Toplam borç tutarı."
-        },
-        {
-          "columnName": "para_birimi",
-          "dataType": "varchar(10)",
-          "allowNull": true,
-          "description": "Borç para birimi (örn: TRY, USD)."
-        },
-        {
-          "columnName": "kalan_taksit",
-          "dataType": "int",
-          "allowNull": true,
-          "description": "Kalan taksit sayısı."
-        },
-        {
-          "columnName": "odeme_tarihi",
-          "dataType": "datetime",
-          "allowNull": true,
-          "description": "Son ödeme tarihi."
-        },
-        {
-          "columnName": "faiz_binecekmi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Faizin uygulanıp uygulanmayacağı."
-        },
-        {
-          "columnName": "odendi_mi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Borç ödenmiş mi."
-        },
-        {
-          "columnName": "talimat_varmi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Otomatik ödeme talimatı var mı."
-        },
-        {
-          "columnName": "bagimli_oldugu_gelir",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Borçla ilişkili gelir kaydı."
-        },
-        {
-          "columnName": "tarih",
-          "dataType": "datetime",
-          "allowNull": false,
-          "description": "Kayıt tarihi (varsayılan GETDATE())."
-        }
-      ]
-    },
-    {
-      "tableName": "gelirler",
-      "purpose": "Kullanıcıların gelir kayıtlarını ayrıntılı olarak saklar.",
-      "columns": [
-        {
-          "columnName": "id",
-          "dataType": "bigint",
-          "allowNull": false,
-          "description": "Gelir için benzersiz ID (Primary Key)."
-        },
-        {
-          "columnName": "kullanici",
-          "dataType": "varchar(150)",
-          "allowNull": false,
-          "description": "Kullanıcıya ait ID veya ad."
-        },
-        {
-          "columnName": "gelir",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Gelir tanımı (örn: maaş, kira)."
-        },
-        {
-          "columnName": "duzenlimi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Gelirin düzenli ödeme olup olmadığı."
-        },
-        {
-          "columnName": "tutar",
-          "dataType": "numeric(18,2)",
-          "allowNull": true,
-          "description": "Gelir tutarı."
-        },
-        {
-          "columnName": "para_birimi",
-          "dataType": "varchar(10)",
-          "allowNull": true,
-          "description": "Gelirin para birimi (örn: TRY, USD)."
-        },
-        {
-          "columnName": "kalan_taksit",
-          "dataType": "int",
-          "allowNull": true,
-          "description": "Taksitli ödemelerde kalan taksit sayısı."
-        },
-        {
-          "columnName": "tahsilat_tarihi",
-          "dataType": "datetime",
-          "allowNull": true,
-          "description": "Gelirin tahsil edildiği tarih."
-        },
-        {
-          "columnName": "faiz_binecekmi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Faiz getirisi olup olmayacağı."
-        },
-        {
-          "columnName": "alindi_mi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Gelirin alınmış olup olmadığı."
-        },
-        {
-          "columnName": "talimat_varmi",
-          "dataType": "bit",
-          "allowNull": true,
-          "description": "Otomatik tahsilat talimatı var mı."
-        },
-        {
-          "columnName": "bagimli_oldugu_gider",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Gelirle ilişkili gider kaydı."
-        },
-        {
-          "columnName": "tarih",
-          "dataType": "datetime",
-          "allowNull": false,
-          "description": "Kayıt tarihi (varsayılan GETDATE())."
-        }
-      ]
-    },
-    {
-      "tableName": "kullanicilar",
-      "purpose": "Kullanıcı hesap bilgilerini ve doğrulama durumlarını tutar.",
-      "columns": [
-        {
-          "columnName": "id",
-          "dataType": "bigint",
-          "allowNull": false,
-          "description": "Kullanıcı için benzersiz ID (Primary Key)."
-        },
-        {
-          "columnName": "kullanici",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Kullanıcının adı."
-        },
-        {
-          "columnName": "sifre",
-          "dataType": "varchar(150)",
-          "allowNull": true,
-          "description": "Şifrelenmiş kullanıcı parolası."
-        },
-        {
-          "columnName": "tarih",
-          "dataType": "date",
-          "allowNull": false,
-          "description": "Hesabın oluşturulma tarihi (varsayılan GETDATE())."
-        },
-        {
-          "columnName": "onaylandi",
-          "dataType": "bit",
-          "allowNull": false,
-          "description": "Hesabın onay durumu."
-        },
-        {
-          "columnName": "verification_token",
-          "dataType": "varchar(50)",
-          "allowNull": true,
-          "description": "Hesap doğrulama token'ı."
-        }
-      ]
-    },
-    {
-      "tableName": "istekler",
-      "purpose": "Kullanıcı istek ve önerilerini takip eder.",
-      "columns": [
-        {
-          "columnName": "id",
-          "dataType": "int",
-          "allowNull": true,
-          "description": "İstek kaydı için benzersiz ID."
-        },
-        {
-          "columnName": "kullanici",
-          "dataType": "nchar(50)",
-          "allowNull": true,
-          "description": "İsteği yapan kullanıcı."
-        },
-        {
-          "columnName": "istekler",
-          "dataType": "nchar(500)",
-          "allowNull": true,
-          "description": "İstek veya öneri içeriği."
-        },
-        {
-          "columnName": "oncelik",
-          "dataType": "nchar(50)",
-          "allowNull": true,
-          "description": "İsteğin öncelik seviyesi."
-        },
-        {
-          "columnName": "date",
-          "dataType": "datetime",
-          "allowNull": true,
-          "description": "İsteğin oluşturulma tarihi (varsayılan GETDATE())."
-        }
-      ]
-    }
-  ],
-  "note": "Bu dosya veritabanı şemasının en güncel halini içermektedir. .env dosyasındaki veritabanı bağlantı ayarları (DB_SERVER, DB_DATABASE, DB_USER, DB_PASSWORD) kullanılarak sorgulanmıştır."
-}
+# VarlikYonetim Veritabanı Şeması
 
+Bu belge, projenin SQL Server veritabanındaki tabloların güncel şemasını içermektedir.
+Son güncelleme tarihi: 2024-02-24
 
+## Veritabanı Bağlantı Bilgileri
+- Sunucu: ADMINISTRATOR
+- Veritabanı: VARLIK_YONETIM
+- Kullanıcı: durak
+- Sürücü: ODBC Driver 17 for SQL Server
+- Bağlantı Güvenliği: Şifreleme kapalı (DB_ENCRYPT=no)
 
+## Tablolar
 
+### 1. pariteler
+Borsa ve diğer piyasa paritelerini, özellikleri ile saklar.
 
+| Kolon           | Tip           | Null  | Varsayılan | Açıklama                                    |
+|-----------------|---------------|-------|------------|---------------------------------------------|
+| ID              | int          | Hayır | IDENTITY   | Parite kaydı için benzersiz kimlik (PK)     |
+| parite          | nvarchar(50) | Evet  | -          | Parite adı (örn: BTC/USDT)                  |
+| borsa           | nvarchar(50) | Evet  | -          | İşlem gördüğü borsa (BINANCE, COMMODITY)    |
+| tip             | nvarchar(50) | Evet  | -          | Paritenin tipi (SPOT, FUTURES, COMMODITY)   |
+| ulke            | nvarchar(50) | Evet  | -          | İlgili ülke bilgisi                         |
+| aciklama        | nvarchar(500)| Evet  | -          | Parite hakkında açıklayıcı bilgi            |
+| aktif           | bit          | Evet  | -          | Paritenin aktif olup olmadığı               |
+| veri_var        | bit          | Evet  | -          | Parite için veri var mı                     |
+| veriler_guncel  | bit          | Evet  | -          | Parite verilerinin güncellik durumu         |
+| kayit_tarihi    | datetime     | Hayır | GETDATE()  | Kaydın oluşturulma tarihi                   |
 
+### 2. kurlar
+Döviz ve diğer kur çiftlerini saklar.
 
+| Kolon           | Tip           | Null  | Varsayılan | Açıklama                                    |
+|-----------------|---------------|-------|------------|---------------------------------------------|
+| id              | bigint(19)   | Hayır | IDENTITY   | Kur kaydı için benzersiz kimlik (PK)        |
+| parite          | nvarchar(50) | Evet  | -          | Kur çiftinin adı (örn: USD/TRY)             |
+| interval        | nvarchar(50) | Evet  | -          | Veri aralığı (günlük, saatlik)              |
+| borsa           | nvarchar(50) | Evet  | -          | Kurun işlem gördüğü borsa                   |
+| tip             | nvarchar(50) | Evet  | -          | Kur türü (Döviz, Kripto)                    |
+| ulke            | nvarchar(50) | Evet  | -          | İlgili ülke                                 |
+| fiyat           | decimal(18,8)| Evet  | -          | Kapanış fiyatı                              |
+| dolar_karsiligi | decimal(18,8)| Evet  | -          | 1 birimin USD cinsinden karşılığı           |
+| tarih           | datetime     | Evet  | -          | Verinin ait olduğu tarih                    |
+| kayit_tarihi    | datetime     | Hayır | GETDATE()  | Kaydın sisteme işlendiği tarih              |
 
+### 3. varliklar
+Kullanıcıların varlık işlemlerini ayrıntılı olarak takip eder.
 
+| Kolon               | Tip           | Null  | Varsayılan | Açıklama                                    |
+|--------------------|---------------|-------|------------|---------------------------------------------|
+| id                 | bigint(19)   | Hayır | IDENTITY   | Varlık için benzersiz kimlik (PK)           |
+| kullanici          | varchar(150) | Hayır | -          | Kullanıcıya ait ID veya ad                  |
+| varlik             | varchar(150) | Evet  | -          | Varlığın adı                                |
+| tur                | varchar(150) | Evet  | -          | Varlık tipi (dijital, gayrimenkul)          |
+| nerede             | varchar(150) | Evet  | -          | Varlığın bulunduğu yer (borsa, cüzdan)      |
+| alis_tarihi        | datetime     | Evet  | -          | Varlığın alım tarihi                        |
+| alis_adedi         | numeric(18,8)| Evet  | -          | Alınan miktar                               |
+| simdi_fiyati_USD   | numeric(18,8)| Evet  | -          | Güncel fiyat (USD)                          |
+| kar_zarar          | numeric(18,8)| Evet  | -          | Toplam kâr/zarar (USD)                      |
+| kar_zarar_yuzde    | numeric(18,8)| Evet  | -          | Yüzdelik kâr/zarar oranı                    |
+| min_satis_fiyati_USD| numeric(18,8)| Evet  | -         | Minimum satış fiyatı (USD)                  |
+| tarih              | datetime     | Hayır | GETDATE()  | Kayıt tarihi                                |
 
+### 4. borclar_giderler
+Kullanıcıların borç ve gider bilgilerini tutar.
 
+| Kolon                | Tip           | Null  | Varsayılan | Açıklama                                    |
+|---------------------|---------------|-------|------------|---------------------------------------------|
+| id                  | bigint(19)   | Hayır | IDENTITY   | Borcun benzersiz ID'si (PK)                 |
+| kullanici           | varchar(150) | Hayır | -          | Kullanıcıya ait ID veya ad                  |
+| borc                | varchar(150) | Evet  | -          | Borç tanımı (kredi, fatura)                 |
+| duzenlimi           | bit          | Evet  | -          | Borç düzenli mi                             |
+| tutar               | numeric(18,2)| Evet  | -          | Toplam borç tutarı                          |
+| para_birimi         | varchar(10)  | Evet  | -          | Borç para birimi (TRY, USD)                 |
+| kalan_taksit        | int(10)     | Evet  | -          | Kalan taksit sayısı                         |
+| odeme_tarihi        | datetime     | Evet  | -          | Son ödeme tarihi                            |
+| faiz_binecekmi      | bit          | Evet  | -          | Faiz uygulanacak mı                         |
+| odendi_mi           | bit          | Evet  | -          | Borç ödenmiş mi                             |
+| talimat_varmi       | bit          | Evet  | -          | Otomatik ödeme talimatı var mı              |
+| bagimli_oldugu_gelir| varchar(150) | Evet  | -          | Borçla ilişkili gelir kaydı                 |
+| tarih               | datetime     | Hayır | GETDATE()  | Kayıt tarihi                                |
 
+### 5. gelirler
+Kullanıcıların gelir kayıtlarını ayrıntılı olarak saklar.
 
-VERİTABANINI BAŞTAN OLUŞTURMAK
+| Kolon                | Tip           | Null  | Varsayılan | Açıklama                                    |
+|---------------------|---------------|-------|------------|---------------------------------------------|
+| id                  | bigint(19)   | Hayır | IDENTITY   | Gelir için benzersiz ID (PK)                |
+| kullanici           | varchar(150) | Hayır | -          | Kullanıcıya ait ID veya ad                  |
+| gelir               | varchar(150) | Evet  | -          | Gelir tanımı (maaş, kira)                   |
+| duzenlimi           | bit          | Evet  | -          | Gelir düzenli mi                            |
+| tutar               | numeric(18,2)| Evet  | -          | Gelir tutarı                                |
+| para_birimi         | varchar(10)  | Evet  | -          | Gelirin para birimi (TRY, USD)              |
+| kalan_taksit        | int(10)     | Evet  | -          | Taksitli ödemelerde kalan sayı              |
+| tahsilat_tarihi     | datetime     | Evet  | -          | Gelirin tahsil edildiği tarih               |
+| faiz_binecekmi      | bit          | Evet  | -          | Faiz getirisi olacak mı                     |
+| alindi_mi           | bit          | Evet  | -          | Gelir alındı mı                             |
+| talimat_varmi       | bit          | Evet  | -          | Otomatik tahsilat talimatı var mı           |
+| bagimli_oldugu_gider| varchar(150) | Evet  | -          | Gelirle ilişkili gider kaydı                |
+| tarih               | datetime     | Hayır | GETDATE()  | Kayıt tarihi                                |
 
+### 6. kullanicilar
+Kullanıcı hesap bilgilerini ve doğrulama durumlarını tutar.
 
--- Veritabanını oluştur
-CREATE DATABASE VARLIK_YONETIM;
-GO
+| Kolon             | Tip           | Null  | Varsayılan | Açıklama                                    |
+|------------------|---------------|-------|------------|---------------------------------------------|
+| id               | bigint(19)   | Hayır | IDENTITY   | Kullanıcı için benzersiz ID (PK)            |
+| kullanici        | varchar(150) | Evet  | -          | Kullanıcının adı                            |
+| sifre            | varchar(150) | Evet  | -          | Şifrelenmiş kullanıcı parolası              |
+| tarih            | date         | Hayır | GETDATE()  | Hesabın oluşturulma tarihi                  |
+| onaylandi        | bit          | Hayır | 0          | Hesabın onay durumu                         |
+| verification_token| varchar(50)  | Evet  | -          | Hesap doğrulama token'ı                     |
 
-USE VARLIK_YONETIM;
-GO
+### 7. istekler
+Kullanıcı istek ve önerilerini takip eder.
 
--- Pariteler tablosu
-CREATE TABLE pariteler (
-    ID int IDENTITY(1,1) PRIMARY KEY,
-    parite nvarchar(50),
-    borsa nvarchar(50),
-    tip nvarchar(50),
-    ulke nvarchar(50),
-    aciklama nvarchar(500),
-    aktif bit,
-    veri_var bit,
-    veriler_guncel bit,
-    kayit_tarihi datetime NOT NULL DEFAULT GETDATE()
-);
+| Kolon      | Tip           | Null  | Varsayılan | Açıklama                                    |
+|-----------|---------------|-------|------------|---------------------------------------------|
+| id        | int(10)      | Hayır | IDENTITY   | İstek kaydı için benzersiz ID (PK)          |
+| kullanici | nchar(50)    | Evet  | -          | İsteği yapan kullanıcı                      |
+| istekler  | nchar(500)   | Evet  | -          | İstek veya öneri içeriği                    |
+| oncelik   | nchar(50)    | Evet  | -          | İsteğin öncelik seviyesi                    |
+| date      | datetime     | Evet  | GETDATE()  | İsteğin oluşturulma tarihi                  |
 
--- Kurlar tablosu
-CREATE TABLE kurlar (
-    id bigint IDENTITY(1,1) PRIMARY KEY,
-    parite nvarchar(50),
-    [interval] nvarchar(50),
-    borsa nvarchar(50),
-    tip nvarchar(50),
-    ulke nvarchar(50),
-    fiyat decimal(18,8),
-    dolar_karsiligi decimal(18,8),
-    tarih datetime,
-    kayit_tarihi datetime NOT NULL DEFAULT GETDATE()
-);
+## İndeksler
 
--- Varlıklar tablosu
-CREATE TABLE varliklar (
-    id bigint IDENTITY(1,1) PRIMARY KEY,
-    kullanici varchar(150) NOT NULL,
-    varlik varchar(150),
-    tur varchar(150),
-    nerede varchar(150),
-    alis_tarihi datetime,
-    alis_fiyati numeric(18,8),
-    alis_adedi numeric(18,8),
-    simdi_fiyati_USD numeric(18,8),
-    kar_zarar numeric(18,8),
-    kar_zarar_yuzde numeric(18,8),
-    min_satis_fiyati_USD numeric(18,8),
-    tarih datetime NOT NULL DEFAULT GETDATE()
-);
+- IX_varliklar_kullanici: varliklar(kullanici)
+- IX_borclar_giderler_kullanici: borclar_giderler(kullanici)
+- IX_gelirler_kullanici: gelirler(kullanici)
+- IX_kullanicilar_kullanici: kullanicilar(kullanici)
+- IX_pariteler_parite: pariteler(parite)
+- IX_kurlar_parite: kurlar(parite)
 
--- Borçlar ve Giderler tablosu
-CREATE TABLE borclar_giderler (
-    id bigint IDENTITY(1,1) PRIMARY KEY,
-    kullanici varchar(150) NOT NULL,
-    borc varchar(150),
-    duzenlimi bit,
-    tutar numeric(18,2),
-    para_birimi varchar(10),
-    kalan_taksit int,
-    odeme_tarihi datetime,
-    faiz_binecekmi bit,
-    odendi_mi bit,
-    talimat_varmi bit,
-    bagimli_oldugu_gelir varchar(150),
-    tarih datetime NOT NULL DEFAULT GETDATE()
-);
+## İlişkiler
 
--- Gelirler tablosu
-CREATE TABLE gelirler (
-    id bigint IDENTITY(1,1) PRIMARY KEY,
-    kullanici varchar(150) NOT NULL,
-    gelir varchar(150),
-    duzenlimi bit,
-    tutar numeric(18,2),
-    para_birimi varchar(10),
-    kalan_taksit int,
-    tahsilat_tarihi datetime,
-    faiz_binecekmi bit,
-    alindi_mi bit,
-    talimat_varmi bit,
-    bagimli_oldugu_gider varchar(150),
-    tarih datetime NOT NULL DEFAULT GETDATE()
-);
+1. borclar_giderler -> gelirler:
+   - bagimli_oldugu_gelir -> gelir (Soft Reference)
 
--- Kullanıcılar tablosu
-CREATE TABLE kullanicilar (
-    id bigint IDENTITY(1,1) PRIMARY KEY,
-    kullanici varchar(150),
-    sifre varchar(150),
-    tarih date NOT NULL DEFAULT GETDATE(),
-    onaylandi bit NOT NULL DEFAULT 0,
-    verification_token varchar(50)
-);
+2. gelirler -> borclar_giderler:
+   - bagimli_oldugu_gider -> borc (Soft Reference)
 
--- İstekler tablosu
-CREATE TABLE istekler (
-    id int IDENTITY(1,1) PRIMARY KEY,
-    kullanici nchar(50),
-    istekler nchar(500),
-    oncelik nchar(50),
-    [date] datetime DEFAULT GETDATE()
-);
+3. varliklar -> kullanicilar:
+   - kullanici -> kullanici (Soft Reference)
 
--- İndeksler
-CREATE INDEX IX_varliklar_kullanici ON varliklar(kullanici);
-CREATE INDEX IX_borclar_giderler_kullanici ON borclar_giderler(kullanici);
-CREATE INDEX IX_gelirler_kullanici ON gelirler(kullanici);
-CREATE INDEX IX_kullanicilar_kullanici ON kullanicilar(kullanici);
-CREATE INDEX IX_pariteler_parite ON pariteler(parite);
-CREATE INDEX IX_kurlar_parite ON kurlar(parite);
-GO
+4. borclar_giderler -> kullanicilar:
+   - kullanici -> kullanici (Soft Reference)
+
+5. gelirler -> kullanicilar:
+   - kullanici -> kullanici (Soft Reference)
+
+## Not
+- Tüm tarih alanları için varsayılan değer GETDATE() kullanılmaktadır
+- Para birimleri için varchar(10) standardı kullanılmaktadır
+- Soft Reference: Fiziksel foreign key kısıtlaması olmayan mantıksal ilişki
+- Tüm ID alanları IDENTITY özelliği ile otomatik artmaktadır
+- Tüm para birimi alanları için TRY ve USD desteklenmektedir
+- Tüm datetime alanları için UTC zaman dilimi kullanılmaktadır
+- Veritabanı karakter seti: Turkish_CI_AS (Case Insensitive, Accent Sensitive)
+- Veritabanı yedekleme sıklığı: Günlük (00:00 UTC)
+- Parasal tutarlar için numeric(18,2) hassasiyet kullanılmaktadır
+- Kur ve varlık hesaplamalarında decimal(18,8) hassasiyet kullanılmaktadır
+- Tamsayı alanlar için int ve bigint hassasiyet kullanılmaktadır
+- Tüm primary key'ler CLUSTERED index olarak tanımlanmıştır
+- Veritabanı son güncelleme tarihi: 2024-02-24
