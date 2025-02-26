@@ -35,12 +35,12 @@ def collect_data(args):
     if args.type in ['all', 'parite']:
         if args.source in ['all', 'commodity']:
             collectors.append(PariteCommodityCollector())
-        # if args.source in ['all', 'binance_futures']:
-        #     collectors.append(PariteBinanceFuturesCollector())
-        # if args.source in ['all', 'binance_spot']:
-        #     collectors.append(PariteBinanceSpotCollector())
-        # if args.source in ['all', 'index']:
-        #     collectors.append(PariteIndexCollector())                
+        if args.source in ['all', 'binance_futures']:
+            collectors.append(PariteBinanceFuturesCollector())
+        if args.source in ['all', 'binance_spot']:
+            collectors.append(PariteBinanceSpotCollector())
+        if args.source in ['all', 'index']:
+            collectors.append(PariteIndexCollector())                
         # if args.source in ['all', 'forex']:
         #     collectors.append(PariteForexCollector())
         # if args.source in ['all', 'stock']:
@@ -51,12 +51,12 @@ def collect_data(args):
     if args.type in ['all', 'candle']:
         if args.source in ['all', 'commodity']:
             collectors.append(CandleCommodityCollector())
-        # if args.source in ['all', 'binance_futures']:
-        #     collectors.append(CandleBinanceFuturesCollector())
-        # if args.source in ['all', 'binance_spot']:
-        #     collectors.append(CandleBinanceSpotCollector())
-        # if args.source in ['all', 'index']:
-        #     collectors.append(CandleIndexCollector())
+        if args.source in ['all', 'binance_futures']:
+            collectors.append(CandleBinanceFuturesCollector())
+        if args.source in ['all', 'binance_spot']:
+            collectors.append(CandleBinanceSpotCollector())
+        if args.source in ['all', 'index']:
+            collectors.append(CandleIndexCollector())
         # if args.source in ['all', 'forex']:
         #     collectors.append(CandleForexCollector())
         # if args.source in ['all', 'stock']:

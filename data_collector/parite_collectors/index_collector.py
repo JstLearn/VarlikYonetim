@@ -202,10 +202,12 @@ class IndexCollector:
         try:
             db = Database()
             if not db.connect():
+                print("Veritabanına bağlanılamadı!")
                 return (0, 0, 0)
                 
             cursor = db.cursor()
             if not cursor:
+                print("Veritabanı cursor oluşturulamadı!")
                 return (0, 0, 0)
                 
             eklenen = 0
@@ -224,23 +226,28 @@ class IndexCollector:
                             INSERT INTO pariteler (parite, aktif, borsa, tip, ulke, aciklama)
                             VALUES (?, ?, ?, ?, ?, ?)
                         """, 
-                        parite['parite'], parite['aktif'], parite['borsa'], 
-                        parite['tip'], parite['ulke'], parite['aciklama'])
+                        (parite['parite'], parite['aktif'], parite['borsa'], 
+                        parite['tip'], parite['ulke'], parite['aciklama']))
                         
                         db.commit()
                         eklenen += 1
                         
-                except:
+                except Exception as e:
+                    print(f"Parite ekleme hatası ({parite['parite']}): {str(e)}")
                     continue
                     
             return (eklenen, 0, 0)
             
-        except:
+        except Exception as e:
+            print(f"Veritabanı hatası: {str(e)}")
             return (0, 0, 0)
             
         finally:
-            if db:
-                db.disconnect()
+            try:
+                if db:
+                    db.disconnect()
+            except Exception as e:
+                print(f"Bağlantı kapatma hatası: {str(e)}")
 
     def collect_pariteler(self):
         """
@@ -252,20 +259,26 @@ class IndexCollector:
             
             genel_toplam = 0
             genel_eklenen = 0
+            hatali_ulke = 0
             
+            # Toplam endeks sayısını hesapla            
             for country in countries:
                 try:
                     # Ülkenin endekslerini al
                     indices_df, exchange = self.get_exchange_for_country(country)
                     if indices_df is None or len(indices_df) == 0:
+                        hatali_ulke += 1
                         continue
                     
                     # Her endeks için
                     for _, index in indices_df.iterrows():
                         try:
                             # Endeks bilgilerini al
+                            if 'symbol' not in index or not index['symbol']:
+                                continue
+                                
                             symbol = index['symbol'].strip().upper()
-                            name = index['name'].strip()
+                            name = index['name'].strip() if 'name' in index else ''
                             country_name = country.upper()
                             currency = index['currency'].upper() if 'currency' in index else self.get_country_currency(country)
                             
@@ -281,23 +294,53 @@ class IndexCollector:
                                 'aciklama': f"{name} - {exchange} Index"
                             }]
                             
-                            # Veritabanına kaydet
-                            eklenen, guncellenen, silinen = self.sync_pariteler_to_db(index_info)
-                            genel_eklenen += eklenen
+                            # Her işlem için yeni bağlantı aç
+                            try:
+                                eklenen, guncellenen, silinen = self.sync_pariteler_to_db(index_info)
+                                genel_eklenen += eklenen
+                                genel_toplam += 1
+                            except KeyboardInterrupt:
+                                print("Kullanıcı tarafından durduruldu.")
+                                return (0, 0, 0)
                             
-                        except:
+                        except KeyboardInterrupt:
+                            print("Kullanıcı tarafından durduruldu.")
+                            return (0, 0, 0)
+                        except Exception:
+                            # İndeks işleme hatası - sessizce geç
                             continue
                     
-                    genel_toplam += len(indices_df)
-                    
-                except:
+                except KeyboardInterrupt:
+                    print("Kullanıcı tarafından durduruldu.")
+                    return (0, 0, 0)
+                except Exception:
+                    hatali_ulke += 1
                     continue
             
-            print(f"Indices: {genel_toplam} endeks bulundu -> {genel_eklenen} yeni eklendi")
+            return genel_toplam, genel_eklenen, hatali_ulke
             
+        except KeyboardInterrupt:
+            print("Kullanıcı tarafından durduruldu.")
+            return 0, 0, 0
         except Exception as e:
-            print(f"Hata: {str(e)}")
+            print(f"Genel hata: {str(e)}")
+            return 0, 0, 0
+            
+    def run(self):
+        """
+        Endeks toplayıcı çalıştırma fonksiyonu
+        """
+        try:
+            genel_toplam, genel_eklenen, hatali_ulke = self.collect_pariteler()
+            print(f"Indices: {genel_toplam} endeks bulundu -> {genel_eklenen} yeni eklendi, {hatali_ulke} ülke hatalı")
+        except Exception as e:
+            print(f"Endeks toplama hatası: {str(e)}")
 
 if __name__ == "__main__":
-    collector = IndexCollector()
-    collector.collect_pariteler()
+    try:
+        collector = IndexCollector()
+        collector.run()
+    except KeyboardInterrupt:
+        print("Kullanıcı tarafından durduruldu.")
+    except Exception as e:
+        print(f"Program hatası: {str(e)}")
