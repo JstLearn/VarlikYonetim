@@ -98,7 +98,7 @@ class BinanceFuturesCollector:
             # Veritabanına kaydet
             if parite_list:
                 eklenen, guncellenen, silinen = self.sync_pariteler_to_db(parite_list)
-                print(f"Binance Futures: {len(parite_list)} parite bulundu -> {eklenen} yeni eklendi")
+                print(f"BINANCE FUTURES: {len(parite_list)} parite bulundu -> {eklenen} yeni eklendi")
             
         except Exception as e:
             print(f"Binance Futures verisi alınamadı: {str(e)}")

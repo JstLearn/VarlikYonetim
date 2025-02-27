@@ -131,10 +131,10 @@ class BinanceSpotCollector:
                     # Sadece değişiklik varsa güncelle
                     cursor.execute("""
                         UPDATE p
-                        SET p.veri_var = ?
+                        SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
                         FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                         WHERE p.parite = ?
-                    """, (yeni_durum, symbol))
+                    """, (yeni_durum, 'BINANCE SPOT', symbol))
                     
                     conn.commit()
                     self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi (önceki değer: {mevcut_durum})")
@@ -230,13 +230,15 @@ class BinanceSpotCollector:
                 else:
                     # Son tarihten sonraki verileri al
                     simdi = datetime.now(timezone.utc)
+                    dun = (simdi - timedelta(days=1)).date()
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
                     
-                    if son_guncelleme.date() < simdi.date():
+                    if son_guncelleme.date() < dun:
+                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün tarihine kadar veriler alınacak")
                         veriler = self.collect_data(
                             symbol,
                             son_guncelleme + timedelta(days=1),
-                            simdi
+                            datetime.combine(dun, datetime.max.time()).replace(tzinfo=timezone.utc)
                         )
                         if not veriler.empty:
                             self.save_candles(symbol, veriler)

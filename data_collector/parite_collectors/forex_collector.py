@@ -129,7 +129,7 @@ class ForexCollector:
             # Veritabanına kaydet
             if parite_list:
                 eklenen, guncellenen, silinen = self.sync_pariteler_to_db(parite_list)
-                print(f"Forex: {len(parite_list)} parite bulundu -> {eklenen} yeni eklendi")
+                print(f"FOREX: {len(parite_list)} parite bulundu -> {eklenen} yeni eklendi")
             
         except Exception as e:
             print(f"Forex verisi alınamadı: {str(e)}")

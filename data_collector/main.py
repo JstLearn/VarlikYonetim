@@ -43,8 +43,8 @@ def collect_data(args):
             collectors.append(PariteIndexCollector())                
         if args.source in ['all', 'forex']:
             collectors.append(PariteForexCollector())
-        if args.source in ['all', 'stock']:
-            collectors.append(PariteStockCollector())
+#        if args.source in ['all', 'stock']:
+#            collectors.append(PariteStockCollector())
 
             
     # Mum toplayıcıları
@@ -57,10 +57,10 @@ def collect_data(args):
             collectors.append(CandleBinanceSpotCollector())
         if args.source in ['all', 'index']:
             collectors.append(CandleIndexCollector())
-        if args.source in ['all', 'forex']:
-            collectors.append(CandleForexCollector())
-        if args.source in ['all', 'stock']:
-            collectors.append(CandleStockCollector())
+#        if args.source in ['all', 'forex']:
+#            collectors.append(CandleForexCollector())
+#        if args.source in ['all', 'stock']:
+#            collectors.append(CandleStockCollector())
             
     # Her collector için çalıştır
     for collector in collectors:
@@ -93,9 +93,7 @@ def main():
             collect_data(args)
             
             # UPDATE_INTERVAL değeri config dosyasından alınıyor (varsayılan 1 saat = 3600 saniye)
-            wait_time = UPDATE_INTERVAL
-            print(f"\n[{time.strftime('%H:%M:%S')}] Veri toplama tamamlandı. {wait_time} saniye beklenecek...")
-            
+            wait_time = UPDATE_INTERVAL            
             # Beklerken kullanıcının Ctrl+C ile sonlandırabilmesi için her saniye kontrol ediyoruz
             for i in range(wait_time):
                 time.sleep(1)

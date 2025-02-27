@@ -5,6 +5,7 @@ Endeks veri toplama işlemleri
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import yfinance as yf
+import investpy
 from utils.database import Database
 from utils.config import COLLECTION_CONFIG
 
@@ -66,8 +67,7 @@ class IndexCollector:
                     
                     if son_tarih is None:
                         # Hiç veri yoksa başlangıç tarihinden itibaren al
-                        self.log(f"{symbol} için hiç veri yok, başlangıçtan itibaren alınacak")
-                        veriler = self.collect_data(symbol, self.baslangic_tarihi, None, conn, cursor)
+                        veriler = self.collect_data(symbol, self.baslangic_tarihi, None, conn, cursor, ulke)
                         if not veriler.empty:
                             self.save_candles(symbol, veriler, ulke, conn, cursor)
                     else:
@@ -75,19 +75,22 @@ class IndexCollector:
                         simdi = datetime.now(timezone.utc)
                         son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
                         
-                        if son_guncelleme.date() < simdi.date():
-                            self.log(f"{symbol} için son güncelleme: {son_guncelleme.date()}, güncel veriler alınacak")
+                        # Bugünün bir gün öncesini al, bugünün verilerini toplamayalım
+                        dun = (simdi - timedelta(days=1)).date()
+                        
+                        if son_guncelleme.date() < dun:
+                            self.log(f"{symbol} için son güncelleme: {son_guncelleme.date()}, dünün tarihine kadar veriler alınacak")
                             veriler = self.collect_data(
                                 symbol,
                                 son_guncelleme + timedelta(days=1),
-                                simdi,
+                                datetime.combine(dun, datetime.max.time()).replace(tzinfo=timezone.utc),  # Dünün son anına kadar
                                 conn,
-                                cursor
+                                cursor,
+                                ulke
                             )
                             if not veriler.empty:
                                 self.save_candles(symbol, veriler, ulke, conn, cursor)
                         else:
-                            self.log(f"{symbol} için veriler zaten güncel (Son: {son_guncelleme.date()})")
                             continue
                     
                     # İşlem başarılı olduysa, değişiklikleri kaydet
@@ -121,7 +124,6 @@ class IndexCollector:
                     cursor.close()
                 if conn and not conn.closed:
                     conn.close()
-                self.log("Veritabanı bağlantısı kapatıldı")
             except Exception as e:
                 self.log(f"Bağlantı kapatma hatası: {str(e)}")
             
@@ -177,12 +179,17 @@ class IndexCollector:
                 except Exception as e:
                     self.log(f"Bağlantı kapatma hatası: {str(e)}")
             
-    def collect_data(self, symbol, start_date, end_date=None, conn=None, cursor=None):
-        """Endeks verilerini yfinance'den toplar"""
+    def collect_data(self, symbol, start_date, end_date=None, conn=None, cursor=None, ulke=None):
+        """Endeks verilerini önce yfinance, sonra investpy'dan toplar"""
+        # Bugünün tarihini alalım (end_date None ise)
+        end_date = end_date or datetime.now(timezone.utc)
+        
+        # Tarihleri string formatına çevir
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+        
+        # 1. ADIM: yfinance'dan veri almayı dene
         try:
-            # Tarihleri string formatına çevir
-            start_str = start_date.strftime('%Y-%m-%d')
-            end_str = (end_date or datetime.now(timezone.utc)).strftime('%Y-%m-%d')
             
             # Tüm uyarıları bastır
             import warnings, sys, io
@@ -192,9 +199,12 @@ class IndexCollector:
             stderr = sys.stderr
             sys.stderr = io.StringIO()
             
+            # Symbol formatını kontrol et ve ayarla
+            yf_symbol = symbol.split('/')[0] if '/' in symbol else symbol
+            
             # yfinance'den veri çek
             df = yf.download(
-                tickers=symbol,
+                tickers=yf_symbol,
                 start=start_str,
                 end=end_str,
                 interval='1d',
@@ -208,55 +218,129 @@ class IndexCollector:
             error_output = sys.stderr.getvalue()
             sys.stderr = stderr
             
-            if "1 Failed download" in error_output:
-                error_msg = error_output.split(']:')[1].strip() if ']:' in error_output else error_output
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log(f"yfinance hata mesajı: {error_msg}")
-                self._update_data_status(symbol, False, conn, cursor)
-                return pd.DataFrame()
-            
-            if df is None or df.empty:
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log("yfinance hata mesajı: Veri bulunamadı")
-                self._update_data_status(symbol, False, conn, cursor)
-                return pd.DataFrame()
-            
-            # DataFrame'i düzenle
-            df = df.rename(columns={
-                'Open': 'open',
-                'High': 'high',
-                'Low': 'low',
-                'Close': 'close',
-                'Volume': 'volume'
-            })
-            
-            # Gerekli kolonları kontrol et
-            required_columns = ['open', 'high', 'low', 'close']
-            if not all(col in df.columns for col in required_columns):
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log("yfinance hata mesajı: Gerekli kolonlar eksik")
-                self._update_data_status(symbol, False, conn, cursor)
-                return pd.DataFrame()
-            
-            if 'volume' not in df.columns:
-                df['volume'] = 0
-            
-            if df[required_columns].isnull().any().any():
-                self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-                self.log("yfinance hata mesajı: Eksik değerler var")
-                self._update_data_status(symbol, False, conn, cursor)
-                return pd.DataFrame()
-            
-            # Veri durumunu güncelle
-            self._update_data_status(symbol, True, conn, cursor)
-            
-            return df
-            
+            # Verileri kontrol et
+            if (not df.empty and 
+                'Open' in df.columns and 
+                'High' in df.columns and 
+                'Low' in df.columns and 
+                'Close' in df.columns):
+                
+                # DataFrame'i düzenle
+                df = df.rename(columns={
+                    'Open': 'open',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Close': 'close',
+                    'Volume': 'volume'
+                })
+                
+                # Volume yoksa ekle
+                if 'volume' not in df.columns:
+                    df['volume'] = 0
+                
+                # Verilerin geçerliliğini kontrol et
+                required_cols = ['open', 'high', 'low', 'close']
+                if not df[required_cols].isnull().any().any():
+                    self._update_data_status(symbol, True, conn, cursor)
+                    return df
+                        
         except Exception as e:
-            self.log(f"yf: {symbol} denendi -> Veri alınamadı")
-            self.log(f"yfinance hata mesajı: {str(e)}")
-            self._update_data_status(symbol, False, conn, cursor)
-            return pd.DataFrame()
+            self.log(f"yf: {symbol} veri alma hatası: {str(e)}")
+        
+        # 2. ADIM: investpy'dan veri almayı dene
+        try:
+            
+            # Symbol ve ülke formatını kontrol et
+            index_symbol = symbol.split('/')[0] if '/' in symbol else symbol
+            
+            # Ülke adını düzelt - investpy küçük harf bekler
+            country = ulke.lower() if ulke else None
+            
+            # Özel durumlar için ülke adı kontrolü
+            if country == "usa":
+                country = "united states"
+            elif country == "uk":
+                country = "united kingdom"
+            
+            # Tarih formatını ayarla (investpy için d/m/Y formatı)
+            from_date = start_date.strftime('%d/%m/%Y')
+            to_date = end_date.strftime('%d/%m/%Y')
+            
+            # Endeks verisini al
+            if country:
+                try:
+                    # İlk ülkeye göre arama yap
+                    historical_data = investpy.indices.get_index_historical_data(
+                        index=index_symbol,
+                        country=country,
+                        from_date=from_date,
+                        to_date=to_date
+                    )
+                    
+                    if not historical_data.empty:
+                        # DataFrame'i düzenle
+                        historical_data = historical_data.rename(columns={
+                            'Open': 'open',
+                            'High': 'high',
+                            'Low': 'low',
+                            'Close': 'close',
+                            'Volume': 'volume'
+                        })
+                        
+                        # Verilerin geçerliliğini kontrol et
+                        required_cols = ['open', 'high', 'low', 'close']
+                        if all(col in historical_data.columns for col in required_cols):
+                            if not historical_data[required_cols].isnull().any().any():
+                                self._update_data_status(symbol, True, conn, cursor)
+                                return historical_data
+                    
+                except Exception:
+                    pass
+                
+                try:
+                    # Ülkeye göre arama başarısız olduysa, sembol adı ile arama yap
+                    search_results = investpy.search_indices(
+                        by='name',
+                        value=index_symbol
+                    )
+                    
+                    if not search_results.empty:
+                        found_index = search_results.iloc[0]
+                        found_country = found_index['country']
+                        found_name = found_index['name']
+                        
+                        historical_data = investpy.indices.get_index_historical_data(
+                            index=found_name,
+                            country=found_country,
+                            from_date=from_date,
+                            to_date=to_date
+                        )
+                        
+                        if not historical_data.empty:
+                            # DataFrame'i düzenle
+                            historical_data = historical_data.rename(columns={
+                                'Open': 'open',
+                                'High': 'high',
+                                'Low': 'low',
+                                'Close': 'close',
+                                'Volume': 'volume'
+                            })
+                            
+                            # Verilerin geçerliliğini kontrol et
+                            required_cols = ['open', 'high', 'low', 'close']
+                            if all(col in historical_data.columns for col in required_cols):
+                                if not historical_data[required_cols].isnull().any().any():
+                                    self._update_data_status(symbol, True, conn, cursor)
+                                    return historical_data
+                except Exception:
+                    pass
+                            
+        except Exception as e:
+            self.log(f"invest: {symbol} veri alma hatası: {str(e)}")
+        
+        # Her iki API de başarısız oldu, veri durumunu false olarak güncelle
+        self._update_data_status(symbol, False, conn, cursor)
+        return pd.DataFrame()  # Boş veri döndür
             
     def _update_data_status(self, symbol, has_data, conn=None, cursor=None):
         """Endeks için veri durumunu günceller"""
@@ -291,9 +375,7 @@ class IndexCollector:
             # Çünkü işlem bütünlüğünü korumak için ana metodun commit yapması gerekiyor
             if close_conn:
                 working_conn.commit()
-                
-            self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi")
-            
+                            
         except Exception as e:
             self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
             if close_conn and own_conn and not getattr(own_conn, 'closed', False):
@@ -439,29 +521,29 @@ class IndexCollector:
                     elif currency_usd is not None:
                         dolar_karsiligi = fiyat / currency_usd
                     else:
-                        self.log(f"Dolar karşılığı hesaplanamadı: {symbol}")
-                        continue
+                        # Döviz kuru bulunamadıysa, varsayılan olarak fiyatın kendisini kullan
+                        # ve uyarı mesajı göster
+                        dolar_karsiligi = fiyat
+                        self.log(f"Dolar karşılığı hesaplanamadı: {symbol} - {ulke} için kur bilgisi yok, fiyat aynen kullanılıyor")
                         
                     working_cursor.execute("""
-                        IF NOT EXISTS (
+                        INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke)
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                        WHERE NOT EXISTS (
                             SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
                             WHERE parite = ? AND [interval] = ? AND tarih = ?
                         )
-                        INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (
-                            parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, 
-                    (symbol, '1d', tarih, 
-                     symbol, '1d', tarih, fiyat, dolar_karsiligi, exchange, 'INDEX', ulke))
+                    (symbol, '1d', tarih, fiyat, dolar_karsiligi, exchange, 'INDEX', ulke, 
+                     symbol, '1d', tarih))
                     
                     kayit_sayisi += 1
                     
                 except Exception as e:
-                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
-                    continue
+                    pass
                     
-            # Sadece kendimiz bağlantı açtıysak commit yap
-            if close_conn and not getattr(working_conn, 'closed', False):
+            # Her durumda commit yap - sadece bağlantı açık ise
+            if not getattr(working_conn, 'closed', False):
                 working_conn.commit()
             
             if kayit_sayisi > 0:
@@ -470,12 +552,13 @@ class IndexCollector:
                 try:
                     working_cursor.execute("""
                         UPDATE p
-                        SET p.veri_var = ?, p.borsa = ?
+                        SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
                         FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                         WHERE p.parite = ?
                     """, (1, exchange, symbol))
                     
-                    if close_conn and not getattr(working_conn, 'closed', False):
+                    # Her durumda commit yap
+                    if not getattr(working_conn, 'closed', False):
                         working_conn.commit()
                 except Exception as e:
                     self.log(f"Parite durumu güncellenemedi ({symbol}): {str(e)}")

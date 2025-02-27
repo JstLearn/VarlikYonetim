@@ -232,7 +232,7 @@ class StockCollector:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE p
-                    SET p.veri_var = ?
+                    SET p.veri_var = ?, p.kayit_tarihi = GETDATE()
                     FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                     WHERE p.parite = ?
                 """, (0, symbol))
@@ -268,7 +268,7 @@ class StockCollector:
             yeni_durum = 1 if has_data else 0
             cursor.execute("""
                 UPDATE p
-                SET p.veri_var = ?
+                SET p.veri_var = ?, p.kayit_tarihi = GETDATE()
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                 WHERE p.parite = ?
             """, (yeni_durum, symbol))
@@ -391,13 +391,16 @@ class StockCollector:
             if kayit_sayisi > 0:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
-                cursor.execute("""
-                    UPDATE p
-                    SET p.veri_var = ?
-                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
-                    WHERE p.parite = ?
-                """, (1, symbol))
-                conn.commit()
+                try:
+                    cursor.execute("""
+                        UPDATE p
+                        SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
+                        FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                        WHERE p.parite = ?
+                    """, (1, exchange, symbol))
+                    conn.commit()
+                except Exception as e:
+                    self.log(f"Parite durumu güncellenemedi ({symbol}): {str(e)}")
                 
             return True
             
@@ -441,24 +444,27 @@ class StockCollector:
                 
                 # Bugünün tarihini al
                 simdi = datetime.now()
+                bugun = simdi.replace(hour=0, minute=0, second=0, microsecond=0)
+                dun = bugun - timedelta(days=1)
                 
                 if son_tarih is None:
-                    # Hiç veri yoksa başlangıç tarihinden itibaren al
+                    # Hiç veri yoksa başlangıç tarihinden itibaren dünün sonuna kadar al
                     baslangic = self.baslangic_tarihi
-                    if baslangic.date() > simdi.date():
-                        baslangic = simdi
-                    veriler, has_data = self.collect_data(symbol, baslangic, simdi, ulke)
+                    if baslangic.date() > dun.date():
+                        baslangic = dun
+                    veriler, has_data = self.collect_data(symbol, baslangic, dun, ulke)
                     if has_data:
                         self.save_candles(symbol, veriler, ulke)
                 else:
-                    # Son tarihten sonraki verileri al
+                    # Son tarihten sonraki verileri dünün sonuna kadar al
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time())
                     
-                    if son_guncelleme.date() < simdi.date():
+                    if son_guncelleme.date() < dun.date():
+                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün tarihine kadar veriler alınacak")
                         baslangic = son_guncelleme + timedelta(days=1)
-                        if baslangic.date() > simdi.date():
-                            baslangic = simdi
-                        veriler, has_data = self.collect_data(symbol, baslangic, simdi, ulke)
+                        if baslangic.date() > dun.date():
+                            baslangic = dun
+                        veriler, has_data = self.collect_data(symbol, baslangic, dun, ulke)
                         if has_data:
                             self.save_candles(symbol, veriler, ulke)
                     else:

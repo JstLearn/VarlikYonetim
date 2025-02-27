@@ -194,11 +194,9 @@ class StockCollector:
                     return currency_code
             
             # Yine bulunamazsa USD döndür
-            print(f"Uyarı: {country_name} için para birimi bulunamadı, USD kullanılıyor.")
             return 'USD'
             
         except Exception as e:
-            print(f"Para birimi alınamadı ({country_name}): {str(e)}")
             return 'USD'  # Hata durumunda USD kullan
 
     def sync_pariteler_to_db(self, yeni_pariteler):
@@ -243,7 +241,8 @@ class StockCollector:
                         eklenen += 1
                         
                         # Yeni eklenen hisse senedi için log mesajı göster
-                        if parite['tip'] == 'STOCK':
+                        # "_STOCK" ile biten borsa adları için mesaj gösterme
+                        if parite['tip'] == 'STOCK' and not parite['borsa'].endswith('_STOCK'):
                             sembol = parite['parite'].split('/')[0] if '/' in parite['parite'] else parite['parite']
                             print(f"{sembol} Hissesi {parite['borsa']} Borsasında listelendi")
                         
@@ -363,7 +362,7 @@ class StockCollector:
                     print(f"{country} hatası: {str(e)}")
                     continue
             
-            print(f"Stocks: {genel_toplam} parite bulundu -> {genel_eklenen} yeni eklendi")
+            print(f"STOCK: {genel_toplam} parite bulundu -> {genel_eklenen} yeni eklendi")
             
         except Exception as e:
             print(f"Hisse senedi verisi alınamadı: {str(e)}")

@@ -106,7 +106,7 @@ class CommodityCollector:
             # Veritabanına kaydet
             if commodity_list:
                 eklenen, guncellenen, silinen = self.sync_pariteler_to_db(commodity_list)
-                print(f"Emtia: {len(commodities)} emtia bulundu -> {eklenen} yeni eklendi")
+                print(f"COMMODITY: {len(commodities)} parite bulundu -> {eklenen} yeni eklendi")
             
         except Exception as e:
             print(f"Emtia verisi alınamadı: {str(e)}")

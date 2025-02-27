@@ -10,7 +10,6 @@ import pyodbc
 
 # Ana klasördeki .env dosyasının yolunu belirle ve yükle
 env_path = pathlib.Path(__file__).parent.parent.parent / '.env'  # İki üst klasöre çık
-print(f"Aranan .env dosya yolu: {env_path}")  # Debug için yolu yazdıralım
 load_dotenv(env_path)
 
 # Veritabanı bağlantı ayarları

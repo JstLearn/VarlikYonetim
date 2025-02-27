@@ -326,7 +326,7 @@ class IndexCollector:
                     continue
             
             # İşlem sonunda kısa bir özet log
-            print(f"İndeksler: {genel_toplam} bulundu, {genel_eklenen} yeni eklendi")
+            print(f"INDEX: {genel_toplam} parite bulundu -> {genel_eklenen} yeni eklendi")
             
             return genel_toplam, genel_eklenen, hatali_ulke
             

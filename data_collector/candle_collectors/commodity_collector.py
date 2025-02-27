@@ -131,7 +131,6 @@ class CommodityCollector:
             
             # 1. ADIM: Sadece bir kez yfinance'dan deneme yap
             try:
-                self.log(f"{symbol} -> yfinance'dan veri alınıyor...")
                 
                 result = yf.download(
                     tickers=yahoo_symbol,
@@ -156,7 +155,6 @@ class CommodityCollector:
             except Exception as e:
                 # 2. ADIM: yfinance başarısız olduysa investing.com'u dene
                 try:
-                    self.log(f"{symbol} -> investing.com'dan veri alınıyor...")
                     
                     try:
                         import investpy
@@ -239,7 +237,6 @@ class CommodityCollector:
                         
                         # investing.com'dan veriyi çek
                         try:
-                            self.log(f"{symbol} -> Investing.com'dan '{investing_symbol}' olarak veri çekiliyor...")
                             result = investpy.get_commodity_historical_data(
                                 commodity=investing_symbol,
                                 from_date=from_date,
@@ -341,7 +338,6 @@ class CommodityCollector:
                 
                 # Eğer veri_var = 1 ise ve has_data = False olsa bile, veri_var değerini 1 olarak koru
                 if mevcut_durum == 1 and not has_data:
-                    self.log(f"{symbol} -> Veri alınamadı fakat veri_var = 1 olarak korundu")
                     return mevcut_durum
                 
                 yeni_durum = 1 if has_data else 0
@@ -349,12 +345,12 @@ class CommodityCollector:
                 if mevcut_durum != yeni_durum:
                     update_query = """
                         UPDATE p
-                        SET p.veri_var = ?
+                        SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
                         FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                         WHERE p.parite = ?
                     """
                     
-                    if self.db.execute_non_query(update_query, (yeni_durum, symbol)):
+                    if self.db.execute_non_query(update_query, (yeni_durum, "COMMODITY", symbol)):
                         return yeni_durum
             else:
                 self.log(f"{symbol} -> Veritabanında bulunamadı")
@@ -379,7 +375,6 @@ class CommodityCollector:
             
             # Eğer veri_var zaten 1 ise, değiştirme
             if row and row[0] == 1:
-                self.log(f"{symbol} -> Veri alınamadı fakat veri_var = 1 olarak korundu")
                 return False
             
             # Eğer veri_var 1 değilse (0 veya NULL), 0 olarak güncelle
@@ -389,8 +384,7 @@ class CommodityCollector:
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                 WHERE p.parite = ?
             """
-            if self.db.execute_non_query(update_query, (symbol,)):
-                self.log(f"{symbol} -> Veri alınamadı, veri_var = 0 olarak güncellendi")
+
             return False
             
         try:
@@ -455,8 +449,7 @@ class CommodityCollector:
             if kayit_sayisi > 0:
                 self._collect_log_mesaj.append(f"{kayit_sayisi} yeni kayıt")
             else:
-                self._collect_log_mesaj.append("Yeni kayıt eklenmedi (zaten güncel)")
-                
+                pass                
             if self._collect_log_mesaj:
                 self.log(f"{symbol} -> " + " | ".join(self._collect_log_mesaj))
                 
@@ -475,7 +468,6 @@ class CommodityCollector:
             
             # Eğer veri_var zaten 1 ise, değiştirme
             if row and row[0] == 1:
-                self.log(f"{symbol} -> Hata oluştu fakat veri_var = 1 olarak korundu")
                 return False
                 
             # Hata durumunda veri_var değerini 0 yap (eğer 1 değilse)
@@ -486,7 +478,6 @@ class CommodityCollector:
                 WHERE p.parite = ?
             """
             self.db.execute_non_query(update_query, (symbol,))
-            self.log(f"{symbol} -> Hata nedeniyle veri_var = 0 olarak güncellendi")
             return False
             
     def run(self):
@@ -527,7 +518,6 @@ class CommodityCollector:
                     
                     # Eğer son güncelleme tarihi bugünse, bu veriyi atla
                     if son_guncelleme_gunu.date() == bugun.date():
-                        self.log(f"{symbol} -> Veriler zaten bugün için güncel (Son güncelleme: {son_guncelleme_gunu.date()})")
                         continue
                     
                     # Eğer son güncelleme dünse, bugünün verileri henüz tam olmayabilir, atla
@@ -539,7 +529,7 @@ class CommodityCollector:
                 if veri_var == 1 and son_tarih is not None:
                     # Eğer son güncelleme günü bugün veya dün değilse, dünün verilerini al
                     if son_guncelleme_gunu.date() < dun.date():
-                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme_gunu.date()}, dünün verileri alınacak")
+                        #self.log(f"{symbol} -> Son güncelleme: {son_guncelleme_gunu.date()}, dünün verileri alınacak")
                         veriler = self.collect_data(
                             symbol,
                             son_guncelleme_gunu + timedelta(days=1),  # Son güncellemeden sonraki gün

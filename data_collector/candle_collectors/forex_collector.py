@@ -230,10 +230,10 @@ class ForexCollector:
             yeni_durum = 1 if has_data else 0
             cursor.execute("""
                 UPDATE p
-                SET p.veri_var = ?
+                SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                 WHERE p.parite = ?
-            """, (yeni_durum, symbol))
+            """, (yeni_durum, 'FOREX', symbol))
             
             # Her zaman commit yap
             conn.commit()
@@ -346,14 +346,21 @@ class ForexCollector:
             
             if kayit_sayisi > 0:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
-                # Veri başarıyla kaydedildi, veri_var'ı 1 yap
-                cursor.execute("""
-                    UPDATE p
-                    SET p.veri_var = ?
-                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
-                    WHERE p.parite = ?
-                """, (1, symbol))
-                conn.commit()
+                # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
+                try:
+                    working_cursor = conn.cursor()
+                    working_cursor.execute("""
+                        UPDATE p
+                        SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
+                        FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                        WHERE p.parite = ?
+                    """, (1, 'FOREX', symbol))
+                    
+                    # Eğer dışarıdan bir bağlantı almadıysak commit yap
+                    if not getattr(conn, 'closed', False):
+                        conn.commit()
+                except Exception as e:
+                    self.log(f"Parite durumu güncellenemedi ({symbol}): {str(e)}")
                 
             return True
             
@@ -407,7 +414,6 @@ class ForexCollector:
                     
                     # Eğer son güncelleme bugünse, bu veriyi atla
                     if son_guncelleme_gunu.date() == bugun.date():
-                        self.log(f"{symbol} -> Veriler zaten bugün için güncel (Son güncelleme: {son_guncelleme_gunu.date()})")
                         continue
                     
                     # Eğer son güncelleme dünse, bugünün verileri henüz tam olmayabilir, atla
