@@ -523,7 +523,6 @@ class IndexCollector:
                         # Döviz kuru bulunamadıysa, varsayılan olarak fiyatın kendisini kullan
                         # ve uyarı mesajı göster
                         dolar_karsiligi = fiyat
-                        self.log(f"Dolar karşılığı hesaplanamadı: {symbol} - {ulke} için kur bilgisi yok, fiyat aynen kullanılıyor")
                         
                     working_cursor.execute("""
                         INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke)

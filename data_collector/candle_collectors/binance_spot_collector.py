@@ -223,20 +223,30 @@ class BinanceSpotCollector:
                 
                 if son_tarih is None:
                     # Hiç veri yoksa başlangıç tarihinden itibaren al
-                    veriler = self.collect_data(symbol, self.baslangic_tarihi)
+                    # Ama bugünkü kapanmamış mumları hariç tut
+                    simdi = datetime.now(timezone.utc)
+                    bugun_baslangic = datetime.combine(simdi.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+                    dun_sonu = bugun_baslangic - timedelta(seconds=1)
+                    
+                    veriler = self.collect_data(symbol, self.baslangic_tarihi, dun_sonu)
                     if not veriler.empty:
                         self.save_candles(symbol, veriler)
                 else:
                     # Son tarihten sonraki verileri al
                     simdi = datetime.now(timezone.utc)
-                    dun = (simdi - timedelta(days=1)).date()
+                    # Bugünün başlangıcını hesapla (UTC gece yarısı)
+                    bugun_baslangic = datetime.combine(simdi.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+                    # Dün gününün son anını al (bugünün başlangıcından 1 saniye önce)
+                    dun_sonu = bugun_baslangic - timedelta(seconds=1)
+                    # Dün gününü al
+                    dun = dun_sonu.date()
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
                     
                     if son_guncelleme.date() < dun:
                         veriler = self.collect_data(
                             symbol,
                             son_guncelleme + timedelta(days=1),
-                            datetime.combine(dun, datetime.max.time()).replace(tzinfo=timezone.utc)
+                            dun_sonu
                         )
                         if not veriler.empty:
                             self.save_candles(symbol, veriler)
