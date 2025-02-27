@@ -133,10 +133,9 @@ class BinanceFuturesCollector:
                         SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
                         FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
                         WHERE p.parite = ?
-                    """, (yeni_durum, 'BINANCE FUTURES', symbol))
+                    """, (yeni_durum, 'BINANCE', symbol))
                     
                     conn.commit()
-                    self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi (önceki değer: {mevcut_durum})")
             else:
                 self.log(f"{symbol} futures çifti veritabanında bulunamadı")
             
@@ -233,7 +232,6 @@ class BinanceFuturesCollector:
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
                     
                     if son_guncelleme.date() < dun:
-                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün tarihine kadar veriler alınacak")
                         veriler = self.collect_data(
                             symbol,
                             son_guncelleme + timedelta(days=1),

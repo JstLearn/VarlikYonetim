@@ -79,7 +79,6 @@ class IndexCollector:
                         dun = (simdi - timedelta(days=1)).date()
                         
                         if son_guncelleme.date() < dun:
-                            self.log(f"{symbol} için son güncelleme: {son_guncelleme.date()}, dünün tarihine kadar veriler alınacak")
                             veriler = self.collect_data(
                                 symbol,
                                 son_guncelleme + timedelta(days=1),

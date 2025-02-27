@@ -451,7 +451,7 @@ class CommodityCollector:
             else:
                 pass                
             if self._collect_log_mesaj:
-                self.log(f"{symbol} -> " + " | ".join(self._collect_log_mesaj))
+                self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
                 
             return True
             
@@ -540,7 +540,6 @@ class CommodityCollector:
                     
                 # Hiç veri yoksa başlangıç tarihinden itibaren dünün sonuna kadar verileri al
                 elif son_tarih is None:
-                    self.log(f"{symbol} -> Hiç veri yok, başlangıçtan dünün sonuna kadar alınacak")
                     veriler = self.collect_data(symbol, self.baslangic_tarihi, dun)
                     if not veriler.empty:
                         self.save_candles(symbol, veriler, ulke)
@@ -549,7 +548,6 @@ class CommodityCollector:
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
                     
                     if son_guncelleme.date() < dun.date():
-                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün sonuna kadar veriler alınacak")
                         veriler = self.collect_data(
                             symbol,
                             son_guncelleme + timedelta(days=1),

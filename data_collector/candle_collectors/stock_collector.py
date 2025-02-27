@@ -275,7 +275,6 @@ class StockCollector:
             
             # Her zaman commit yap
             conn.commit()
-            self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi")
             
         except Exception as e:
             self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
@@ -460,7 +459,6 @@ class StockCollector:
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time())
                     
                     if son_guncelleme.date() < dun.date():
-                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün tarihine kadar veriler alınacak")
                         baslangic = son_guncelleme + timedelta(days=1)
                         if baslangic.date() > dun.date():
                             baslangic = dun
