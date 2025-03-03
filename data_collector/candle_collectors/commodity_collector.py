@@ -120,8 +120,21 @@ class CommodityCollector:
             if yahoo_symbol != symbol:
                 self._collect_log_mesaj.append(f"Sembol: {yahoo_symbol}")
             
+            # Eğer end_date belirtilmemişse, UTC+0'a göre dünün sonunu kullan
+            if end_date is None:
+                simdi = datetime.now(timezone.utc)
+                self._collect_log_mesaj.append(f"UTC şimdi: {simdi.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # UTC+0'a göre bugünün başlangıcını bul 
+                utc_bugun = simdi.replace(hour=0, minute=0, second=0, microsecond=0)
+                # UTC+0'a göre dünün sonuna kadar verileri al
+                end_date = (utc_bugun - timedelta(days=1)).replace(hour=23, minute=59, second=59)
+                
+                self._collect_log_mesaj.append(f"UTC+0 dünü: {end_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            
             start_str = start_date.strftime('%Y-%m-%d')
-            end_str = (end_date or datetime.now(timezone.utc)).strftime('%Y-%m-%d')
+            end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')  # Bitiş tarihine 1 gün ekle - yfinance end_date'i dahil etmiyor
+            
             
             # Uyarıları bastır
             warnings.filterwarnings('ignore')
@@ -233,42 +246,34 @@ class CommodityCollector:
                     if investing_symbol:
                         # investing.com'dan tarihleri istenen formatta ayarla
                         from_date = start_date.strftime('%d/%m/%Y')
-                        to_date = (end_date or datetime.now(timezone.utc)).strftime('%d/%m/%Y')
+                        to_date = end_date.strftime('%d/%m/%Y')  # Bitiş tarihi için +1 gün ekleme - investing end_date'i dahil ediyor
                         
-                        # investing.com'dan veriyi çek
-                        try:
-                            result = investpy.get_commodity_historical_data(
-                                commodity=investing_symbol,
-                                from_date=from_date,
-                                to_date=to_date
-                            )
-                            
-                            if result is not None and not result.empty:
-                                # Sütun isimlerini yfinance ile uyumlu hale getir
-                                result = result.rename(columns={
-                                    'Open': 'open',
-                                    'High': 'high',
-                                    'Low': 'low',
-                                    'Close': 'close',
-                                    'Volume': 'volume' if 'Volume' in result.columns else None
-                                })
-                                # Volume yoksa ekle
-                                if 'volume' not in result.columns or result['volume'].isnull().all():
-                                    result['volume'] = 0
-                                    
-                                df = result
-                                self._collect_log_mesaj.append(f"investing.com'dan '{investing_symbol}' verisi alındı ({len(df)} kayıt)")
-                            else:
-                                self._collect_log_mesaj.append(f"investing.com'dan '{investing_symbol}' verisi alınamadı (boş DataFrame)")
-                                # Her iki kaynaktan da veri alınamadı
-                                self._update_data_status(symbol, False)
-                                return pd.DataFrame()
-                        except investpy.errors.InvalidParameterError:
-                            self._collect_log_mesaj.append(f"Geçersiz parametre: '{investing_symbol}' investing.com'da bulunamadı")
-                            self._update_data_status(symbol, False)
-                            return pd.DataFrame()
-                        except Exception as inv_err:
-                            self._collect_log_mesaj.append(f"investing.com hatası: {str(inv_err)}")
+                        self._collect_log_mesaj.append(f"Investing tarih aralığı: {from_date} -> {to_date}")
+                        
+                        result = investpy.get_commodity_historical_data(
+                            commodity=investing_symbol,
+                            from_date=from_date,
+                            to_date=to_date
+                        )
+                        
+                        if result is not None and not result.empty:
+                            # Sütun isimlerini yfinance ile uyumlu hale getir
+                            result = result.rename(columns={
+                                'Open': 'open',
+                                'High': 'high',
+                                'Low': 'low',
+                                'Close': 'close',
+                                'Volume': 'volume' if 'Volume' in result.columns else None
+                            })
+                            # Volume yoksa ekle
+                            if 'volume' not in result.columns or result['volume'].isnull().all():
+                                result['volume'] = 0
+                                
+                            df = result
+                            self._collect_log_mesaj.append(f"investing.com'dan '{investing_symbol}' verisi alındı ({len(df)} kayıt)")
+                        else:
+                            self._collect_log_mesaj.append(f"investing.com'dan '{investing_symbol}' verisi alınamadı (boş DataFrame)")
+                            # Her iki kaynaktan da veri alınamadı
                             self._update_data_status(symbol, False)
                             return pd.DataFrame()
                     else:
@@ -491,13 +496,21 @@ class CommodityCollector:
             
         self.log(f"Toplam {len(pairs)} emtia işlenecek")
         
+        # UTC+0 zaman dilimine göre günleri belirle
+        simdi = datetime.now(timezone.utc)
+        
+        bugun_utc = simdi.replace(hour=0, minute=0, second=0, microsecond=0)  # UTC+0'da bugünün başlangıcı
+        dun_utc = bugun_utc - timedelta(days=1)  # UTC+0'da dünün başlangıcı
+        dun_sonu_utc = dun_utc.replace(hour=23, minute=59, second=59)  # UTC+0'da dünün sonu
+        
+        
         for pair in pairs:
             symbol = pair['symbol']
             ulke = pair['ulke']
             veri_var = pair.get('veri_var')  # veri_var değerini alıyoruz
-            log_mesaj = []
             
             try:
+                # Veritabanındaki en son tarihi al
                 query = """
                     SELECT MAX(tarih) as son_tarih
                     FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
@@ -507,54 +520,84 @@ class CommodityCollector:
                 row = self.db.fetch_one(query, (symbol,))
                 son_tarih = row[0] if row and row[0] else None
                 
-                # Bugünün ve dünün başlangıcı
-                simdi = datetime.now(timezone.utc)
-                bugun = simdi.replace(hour=0, minute=0, second=0, microsecond=0)
-                dun = bugun - timedelta(days=1)
-                
-                # Eğer son tarih varsa, sadece gün kısmını al
-                if son_tarih is not None:
-                    son_guncelleme_gunu = son_tarih.replace(hour=0, minute=0, second=0, microsecond=0)
-                    
-                    # Eğer son güncelleme tarihi bugünse, bu veriyi atla
-                    if son_guncelleme_gunu.date() == bugun.date():
-                        continue
-                    
-                    # Eğer son güncelleme dünse, bugünün verileri henüz tam olmayabilir, atla
-                    if son_guncelleme_gunu.date() == dun.date():
-                        self.log(f"{symbol} -> Dünün verileri güncel, bugünün verileri henüz işlenmeyecek (Son güncelleme: {son_guncelleme_gunu.date()})")
-                        continue
-                
-                # Eğer veri_var = 1 ise ve son tarih bugün veya dün DEĞİLSE, verileri al
-                if veri_var == 1 and son_tarih is not None:
-                    # Eğer son güncelleme günü bugün veya dün değilse, dünün verilerini al
-                    if son_guncelleme_gunu.date() < dun.date():
-                        #self.log(f"{symbol} -> Son güncelleme: {son_guncelleme_gunu.date()}, dünün verileri alınacak")
-                        veriler = self.collect_data(
-                            symbol,
-                            son_guncelleme_gunu + timedelta(days=1),  # Son güncellemeden sonraki gün
-                            dun  # Bugün değil dünün sonuna kadar
-                        )
-                        if not veriler.empty:
-                            self.save_candles(symbol, veriler, ulke)
-                    
-                # Hiç veri yoksa başlangıç tarihinden itibaren dünün sonuna kadar verileri al
-                elif son_tarih is None:
-                    veriler = self.collect_data(symbol, self.baslangic_tarihi, dun)
+                # Eğer hiç veri yoksa başlangıç tarihinden itibaren tüm verileri al
+                if son_tarih is None:
+                    veriler = self.collect_data(symbol, self.baslangic_tarihi, dun_sonu_utc)
                     if not veriler.empty:
                         self.save_candles(symbol, veriler, ulke)
-                # Normal durum: Son güncelleme tarihinden sonraki verileri dünün sonuna kadar al
-                else:
-                    son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+                    continue
+                
+                # Son tarih varsa, UTC'de gün başlangıcını al
+                son_guncelleme_gunu = son_tarih.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Son güncelleme tarihi dünden daha yeniyse (bugün veya dün), veri çekme
+                if son_guncelleme_gunu.date() >= dun_utc.date():
+                    continue
                     
-                    if son_guncelleme.date() < dun.date():
-                        veriler = self.collect_data(
-                            symbol,
-                            son_guncelleme + timedelta(days=1),
-                            dun  # Bugün değil dünün sonuna kadar
-                        )
-                        if not veriler.empty:
-                            self.save_candles(symbol, veriler, ulke)
+                # Önce yfinance'den son kapanış tarihini kontrol et
+                # Son güncelleme gününden sonraki günden itibaren bak
+                baslangic_tarihi = son_guncelleme_gunu + timedelta(days=1)
+                
+                # Yfinance'den bu sembol için son durumu kontrol et
+                # Yeni veri var mı yok mu önce bir bak
+                yahoo_symbol = self.get_yahoo_symbol(symbol)
+                
+                # Gereksiz API çağrılarını önlemek için önce son mumları kontrol et
+                try:
+                    warnings.filterwarnings('ignore')
+                    self.logger.disabled = True
+                    
+                    # Sadece son güncelleme gününden günümüze kadar olan kısmı kontrol et
+                    # Bunun için tarih aralığını sınırlıyoruz
+                    check_start = baslangic_tarihi.strftime('%Y-%m-%d')
+                    check_end = (dun_sonu_utc + timedelta(days=1)).strftime('%Y-%m-%d')
+                    
+                    # Yfinance'den sadece son mumları kontrol et
+                    check_data = yf.download(
+                        tickers=yahoo_symbol,
+                        start=check_start,
+                        end=check_end,
+                        interval="1d",
+                        progress=False
+                    )
+                    
+                    # Eğer yeni veri yoksa, güncelleme yapma
+                    if check_data.empty:
+                        continue
+                        
+                    # Eğer yeni veri varsa, en yeni tarihi kontrol et
+                    son_yfinance_tarihi = check_data.index[-1]
+                    
+                    # Son tarih UTC saat dilimine dönüştürülüyor
+                    son_tarih_utc = son_tarih.replace(tzinfo=timezone.utc)
+                    
+                    # Eğer yfinance'deki son tarih veritabanındaki son tarihten daha yeniyse veri al
+                    if son_yfinance_tarihi.date() <= son_tarih_utc.date():
+                        continue
+                    
+                    self.log(f"{symbol} -> Yeni veri bulundu! DB: {son_tarih.strftime('%Y-%m-%d')}, YFinance: {son_yfinance_tarihi.strftime('%Y-%m-%d')}")
+                    
+                    # Yeni bulunan verilerin kapanış fiyatlarını logla
+                    for tarih, row in check_data.iterrows():
+                        # Sadece veritabanındaki son tarihten sonraki verileri göster
+                        if tarih.date() > son_tarih_utc.date():
+                            tarih_str = tarih.strftime('%Y-%m-%d')
+                            fiyat = float(row['Close'])
+                            self.log(f"🔍 YENİ VERİ: {symbol} - {tarih_str}: Kapanış fiyatı = {fiyat}")
+                    
+                    # Burada yeni veri var demektir, veriyi çekip kaydet
+                    veriler = self.collect_data(symbol, baslangic_tarihi, dun_sonu_utc)
+                    if not veriler.empty:
+                        self.save_candles(symbol, veriler, ulke)
+                    
+                except Exception as check_error:
+                    self.log(f"{symbol} -> YFinance kontrol hatası: {str(check_error)}")
+                    
+                    # Hata durumunda normal akışla devam et
+                    veriler = self.collect_data(symbol, baslangic_tarihi, dun_sonu_utc)
+                    if not veriler.empty:
+                        self.log(f"{symbol} için veri bulundu: {len(veriler)} kayıt")
+                        self.save_candles(symbol, veriler, ulke)
                 
             except Exception as e:
                 self.log(f"{symbol} -> İşlem hatası: {str(e)}")

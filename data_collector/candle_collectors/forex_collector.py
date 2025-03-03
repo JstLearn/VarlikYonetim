@@ -7,35 +7,170 @@ import pandas as pd
 import yfinance as yf
 from utils.database import Database
 from utils.config import COLLECTION_CONFIG
+import time
+import traceback
+import sys
 
 class ForexCollector:
     def __init__(self):
         self.db = Database()
         self.baslangic_tarihi = datetime.strptime(COLLECTION_CONFIG['start_date'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+        self.usd_pairs_cache = {}  # USD parite önbelleği
+        self.connection_recovery_time = 60  # saniye - bağlantı havuzu toparlanma süresi
         
     def log(self, message):
         """Zaman damgalı log mesajı yazdırır"""
         timestamp = datetime.now().strftime('%H:%M:%S')
         print(f"[{timestamp}] {message}")
         
+    def _safe_close(self, cursor=None, connection=None):
+        """Cursor ve Connection'ı güvenli bir şekilde kapatır"""
+        try:
+            if cursor:
+                cursor.close()
+        except Exception as e:
+            print(f"Cursor kapatma hatası: {str(e)}")
+            
+        try:
+            if connection:
+                connection.close()
+        except Exception as e:
+            print(f"Bağlantı kapatma hatası: {str(e)}")
+        
+    def _get_connection(self):
+        """Veritabanı bağlantısını oluşturur ve yeniden deneme stratejisi uygular"""
+        max_retries = 5  # Daha fazla deneme
+        retry_delay = 2  # saniye
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                conn = self.db.connect()
+                if conn:
+                    if attempt > 1:
+                        self.log(f"Bağlantı {attempt}. denemede başarıyla kuruldu.")
+                    return conn
+                else:
+                    self.log(f"Bağlantı oluşturulamadı ({attempt}/{max_retries})")
+            except Exception as e:
+                self.log(f"Bağlantı hatası ({attempt}/{max_retries}): {str(e)}")
+            
+            # Son deneme değilse bekle
+            if attempt < max_retries:
+                # Exponential backoff - her denemede bekleme süresini 2 katına çıkar
+                wait_time = retry_delay * (2 ** (attempt - 1))
+                self.log(f"Yeniden denemeden önce {wait_time} saniye bekleniyor...")
+                time.sleep(wait_time)
+        
+        self.log(f"Maksimum deneme sayısına ulaşıldı ({max_retries}), bağlantı kurulamadı.")
+        return None
+        
+    def _execute_query(self, query, params=None, fetch_one=False, fetch_all=False):
+        """Sorgulama işlemlerini güvenli şekilde yapar"""
+        conn = None
+        cursor = None
+        result = None
+        
+        try:
+            conn = self._get_connection()
+            if not conn:
+                self.log("Sorgu yürütülemedi - bağlantı kurulamadı")
+                return None
+                
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+                
+            if fetch_one:
+                result = cursor.fetchone()
+            elif fetch_all:
+                result = cursor.fetchall()
+            else:
+                conn.commit()
+                result = True
+                
+            return result
+            
+        except Exception as e:
+            self.log(f"Sorgu yürütme hatası: {str(e)}")
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            return None
+        finally:
+            self._safe_close(cursor, conn)
+        
+    def _load_usd_pairs(self):
+        """Tüm USD kurlarını bir kerede yükler ve önbelleğe alır"""
+        # İlk önce, mevcut USD çiftlerini kullanılabilir tutalım
+        temp_cache = self.usd_pairs_cache.copy() if self.usd_pairs_cache else {}
+        
+        try:
+            query = """
+                SELECT p.parite, k.fiyat
+                FROM [VARLIK_YONETIM].[dbo].[kurlar] k WITH (NOLOCK)
+                INNER JOIN (
+                    SELECT parite, MAX(tarih) as son_tarih
+                    FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
+                    WHERE (parite LIKE 'USD/%' OR parite LIKE '%/USD')
+                    AND borsa = 'FOREX'
+                    GROUP BY parite
+                ) AS son ON k.parite = son.parite AND k.tarih = son.son_tarih
+                WHERE k.borsa = 'FOREX'
+            """
+            
+            rows = self._execute_query(query, fetch_all=True)
+            if not rows:
+                self.log("USD kurları yüklenemedi - Sorgu sonuç döndürmedi")
+                return False
+                
+            # Sonuçları önbelleğe al
+            self.usd_pairs_cache = {}  # Önbelleği temizle
+            row_count = 0
+            for row in rows:
+                parite = row[0]
+                fiyat = float(row[1])
+                self.usd_pairs_cache[parite] = fiyat
+                row_count += 1
+                
+            self.log(f"Toplam {row_count} USD paritesi önbelleğe alındı")
+            
+            # Eğer hiçbir şey yüklenemezse, eski önbelleği geri yükle
+            if row_count == 0 and temp_cache:
+                self.usd_pairs_cache = temp_cache
+                self.log("Yeni USD kurları yüklenemedi, eski kurlar kullanılıyor")
+                
+            return row_count > 0
+            
+        except Exception as e:
+            self.log(f"USD kurları yüklenirken hata oluştu: {str(e)}")
+            # Hata durumunda eski önbelleği geri yükle
+            if temp_cache:
+                self.usd_pairs_cache = temp_cache
+                self.log("Hata nedeniyle eski USD kurları kullanılıyor")
+            return False
+                
     def get_active_pairs(self):
         """Aktif Forex paritelerini getirir"""
         try:
-            conn = self.db.connect()
-            if not conn:
-                return []
-                
-            cursor = conn.cursor()
-            cursor.execute("""
+            query = """
                 SELECT parite, borsa, veriler_guncel, ulke, veri_var
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
                 WHERE borsa = 'FOREX' AND tip = 'SPOT' 
                 AND aktif = 1 
                 AND (veri_var = 1 OR veri_var IS NULL)
-            """)
+            """
             
+            rows = self._execute_query(query, fetch_all=True)
+            if not rows:
+                self.log("Forex pariteleri sorgulandı fakat sonuç bulunamadı")
+                return []
+                
             pairs = []
-            for row in cursor.fetchall():
+            for row in rows:
                 pairs.append({
                     'symbol': row[0],
                     'exchange': row[1] if row[1] else 'FOREX',
@@ -50,15 +185,11 @@ class ForexCollector:
             
         except Exception as e:
             self.log(f"Hata: Forex pariteleri alınamadı - {str(e)}")
+            # Hatanın detayını da logla
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            error_details = traceback.format_exception(exc_type, exc_value, exc_traceback)
+            self.log("Hata detayı: " + "".join(error_details))
             return []
-        finally:
-            try:
-                if cursor:
-                    cursor.close()
-                if conn:
-                    conn.close()
-            except:
-                pass
             
     def collect_data(self, symbol, start_date, end_date=None):
         """Forex verilerini toplar"""
@@ -104,7 +235,8 @@ class ForexCollector:
                 progress=False,
                 auto_adjust=True,  # Otomatik düzeltme yap
                 prepost=False,  # Pre/post market verilerini alma
-                threads=False  # Tek thread kullan
+                threads=False,  # Tek thread kullan
+                timeout=10      # 10 saniye timeout
             )
             
             # Hata mesajını al
@@ -186,135 +318,116 @@ class ForexCollector:
                 self.log(f"yfinance hata mesajı: {yf_error}")
                 self.log(f"investing hata mesajı: {inv_error}")
             
-        # Her iki kaynaktan da veri alınamadıysa
-        conn = None
-        try:
-            conn = self.db.connect()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE p
-                    SET p.veri_var = ?
-                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
-                    WHERE p.parite = ?
-                """, (0, symbol))
-                conn.commit()
-        except Exception as e:
-            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
-            if conn:
-                try:
-                    conn.rollback()
-                except:
-                    pass
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except:
-                    pass
+        # Her iki kaynaktan da veri alınamadıysa veri_var değerini 0 yap
+        self._execute_query(
+            "UPDATE p SET p.veri_var = ? FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK) WHERE p.parite = ?",
+            (0, symbol)
+        )
                     
         return pd.DataFrame(), False
             
     def _update_data_status(self, symbol, has_data):
         """Parite için veri durumunu günceller"""
-        conn = None
-        try:
-            conn = self.db.connect()
-            if not conn:
-                self.log(f"{symbol} için veritabanı bağlantısı kurulamadı (veri_var güncellemesi)")
-                return
-                
-            cursor = conn.cursor()
-            
-            # Her durumda güncelle
-            yeni_durum = 1 if has_data else 0
-            cursor.execute("""
-                UPDATE p
-                SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
-                FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
-                WHERE p.parite = ?
-            """, (yeni_durum, 'FOREX', symbol))
-            
-            # Her zaman commit yap
-            conn.commit()
-            
-        except Exception as e:
-            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
-            if conn:
-                try:
-                    conn.rollback()
-                except:
-                    pass
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except:
-                    pass
-                
-    def get_dolar_karsiligi(self, symbol, fiyat):
-        """Paritenin dolar karşılığını hesaplar"""
-        # Parite çiftini ayır (örn: EUR/USD -> ['EUR', 'USD'])
-        base, quote = symbol.split('/')
+        yeni_durum = 1 if has_data else 0
+        result = self._execute_query(
+            "UPDATE p SET p.veri_var = ? FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK) WHERE p.parite = ?",
+            (yeni_durum, symbol)
+        )
         
-        if quote == 'USD':  # Direkt USD karşılığı
-            return fiyat
+        if result:
+            self.log(f"{symbol} için veri_var = {yeni_durum} olarak güncellendi")
+        else:
+            self.log(f"{symbol} için veri_var güncellenemedi")
             
-        try:
-            conn = self.db.connect()
-            if not conn:
-                return None
+        return result
                 
-            cursor = conn.cursor()
-            
-            # Önce QUOTE/USD formatında ara
-            cursor.execute("""
-                SELECT TOP 1 fiyat
-                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
-                WHERE parite = ? AND borsa = 'FOREX'
-                ORDER BY tarih DESC
-            """, (f"{quote}/USD",))
-            
-            row = cursor.fetchone()
-            if row:
-                quote_usd = float(row[0])
-                return fiyat * quote_usd
-                
-            # Bulunamazsa USD/QUOTE formatında ara ve tersini al
-            cursor.execute("""
-                SELECT TOP 1 fiyat
-                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
-                WHERE parite = ? AND borsa = 'FOREX'
-                ORDER BY tarih DESC
-            """, (f"USD/{quote}",))
-            
-            row = cursor.fetchone()
-            if row:
-                quote_usd = float(row[0])
-                return fiyat * (1 / quote_usd)
-                
-        except Exception as e:
-            self.log(f"Dolar karşılığı hesaplama hatası ({symbol}): {str(e)}")
-            
-        return None
-
     def save_candles(self, symbol, df, ulke):
         """Mum verilerini veritabanına kaydeder"""
         if df.empty:
             return False
+        
+        # Dolar çevrimleri için önbellek yüklü değilse yükle    
+        if not self.usd_pairs_cache:
+            self._load_usd_pairs()
             
+        conn = None    
+        cursor = None
         try:
-            conn = self.db.connect()
+            conn = self._get_connection()
             if not conn:
                 return False
                 
             cursor = conn.cursor()
             kayit_sayisi = 0
             
+            # Parite çiftini ayır
+            base, quote = symbol.split('/')
+            
+            # USD doğrudan hesaplama - USD paritesi için çevrim gerekmez
+            is_usd_quote = (quote == 'USD')
+            
+            # USD karşılığı hesapla (bağlantı açıp kapatmamak için burada hesapla)
+            quote_usd = None
+            usd_quote = None
+            
+            if not is_usd_quote:
+                # Önbellekten kontrol et
+                if f"{quote}/USD" in self.usd_pairs_cache:
+                    quote_usd = self.usd_pairs_cache[f"{quote}/USD"]
+                elif f"USD/{quote}" in self.usd_pairs_cache:
+                    usd_quote = self.usd_pairs_cache[f"USD/{quote}"]
+                else:
+                    # Önbellekte yoksa veritabanından sorgula
+                    try:
+                        # Önce QUOTE/USD formatında ara
+                        cursor.execute("""
+                            SELECT TOP 1 fiyat
+                            FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
+                            WHERE parite = ? AND borsa = 'FOREX'
+                            ORDER BY tarih DESC
+                        """, (f"{quote}/USD",))
+                        
+                        row = cursor.fetchone()
+                        if row:
+                            quote_usd = float(row[0])
+                            # Önbelleğe ekle
+                            self.usd_pairs_cache[f"{quote}/USD"] = quote_usd
+                        else:
+                            # Bulunamazsa USD/QUOTE formatında ara
+                            cursor.execute("""
+                                SELECT TOP 1 fiyat
+                                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
+                                WHERE parite = ? AND borsa = 'FOREX'
+                                ORDER BY tarih DESC
+                            """, (f"USD/{quote}",))
+                            
+                            row = cursor.fetchone()
+                            if row:
+                                usd_quote = float(row[0])
+                                # Önbelleğe ekle
+                                self.usd_pairs_cache[f"USD/{quote}"] = usd_quote
+                    except Exception as e:
+                        self.log(f"USD karşılığı sorgusu hatası ({symbol}): {str(e)}")
+            
+            # DataFrame'deki her satır için
             for tarih, row in df.iterrows():
                 try:
                     fiyat = float(row['Close'])
-                    dolar_karsiligi = self.get_dolar_karsiligi(symbol, fiyat)
+                    
+                    # Dolar karşılığını hesapla
+                    if is_usd_quote:
+                        # USD paritesi ise doğrudan fiyatı kullan
+                        dolar_karsiligi = fiyat
+                    elif quote_usd is not None:
+                        # QUOTE/USD formatı bulunduysa kullan
+                        dolar_karsiligi = fiyat * quote_usd
+                    elif usd_quote is not None:
+                        # USD/QUOTE formatı bulunduysa tersini kullan
+                        dolar_karsiligi = fiyat * (1 / usd_quote)
+                    else:
+                        # Dolar karşılığı hesaplanamadı, bu kaydı atla
+                        self.log(f"{symbol} -> Dolar karşılığı hesaplanamadı, bu kayıt atlanıyor")
+                        continue
                     
                     # Önce kaydın var olup olmadığını kontrol et
                     cursor.execute("""
@@ -337,125 +450,212 @@ class ForexCollector:
                     
                 except Exception as e:
                     self.log(f"SQL Kayıt hatası ({symbol}, {tarih}): {str(e)}")
-                    self.log(f"Hata detayı: {e.__class__.__name__}: {str(e)}")
-                    self.log(f"Değerler: parite={symbol}, interval=1d, tarih={tarih}, fiyat={fiyat}, dolar={dolar_karsiligi}, borsa=FOREX, tip=SPOT, ulke={ulke}")
                     continue
                     
             conn.commit()
             
             if kayit_sayisi > 0:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
-                # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
-                try:
-                    working_cursor = conn.cursor()
-                    working_cursor.execute("""
-                        UPDATE p
-                        SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
-                        FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
-                        WHERE p.parite = ?
-                    """, (1, 'FOREX', symbol))
-                    
-                    # Eğer dışarıdan bir bağlantı almadıysak commit yap
-                    if not getattr(conn, 'closed', False):
-                        conn.commit()
-                except Exception as e:
-                    self.log(f"Parite durumu güncellenemedi ({symbol}): {str(e)}")
+                # Veri başarıyla kaydedildi, veri_var'ı 1 yap
+                cursor.execute("""
+                    UPDATE p
+                    SET p.veri_var = ?
+                    FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
+                    WHERE p.parite = ?
+                """, (1, symbol))
+                conn.commit()
                 
             return True
             
         except Exception as e:
             self.log(f"Veritabanı hatası ({symbol}): {str(e)}")
-            self.log(f"Hata detayı: {e.__class__.__name__}: {str(e)}")
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
             return False
+        finally:
+            self._safe_close(cursor, conn)
             
-    def run(self):
-        """Tüm Forex verilerini toplar"""
-        self.log("="*50)
+    def process_pair(self, pair):
+        """Tek bir forex paritesini işler"""
+        symbol = pair['symbol']
+        ulke = pair['ulke']
+        veri_var = pair.get('veri_var')
         
-        pairs = self.get_active_pairs()
-        if not pairs:
-            self.log("İşlenecek Forex verisi yok")
-            return           
+        # Çok sık bağlantı açmadan önce biraz bekle
+        time.sleep(1)
         
-        for pair in pairs:
-            symbol = pair['symbol']
-            ulke = pair['ulke']
-            veri_var = pair.get('veri_var')  # veri_var değerini alıyoruz
+        try:
+            # Son kayıt tarihini sorgula
+            query = "SELECT MAX(tarih) as son_tarih FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK) WHERE parite = ?"
+            result = self._execute_query(query, (symbol,), fetch_one=True)
             
-            try:
-                # Son kayıt tarihini kontrol et
-                conn = self.db.connect()
-                if not conn:
-                    continue
+            if result is None:
+                self.log(f"{symbol} için son tarih sorgulanamadı. İşleme atlanıyor.")
+                return False
+                
+            son_tarih = result[0] if result and result[0] else None
+            
+            # Bugünün ve dünün tarihini al
+            simdi = datetime.now()
+            bugun = simdi.replace(hour=0, minute=0, second=0, microsecond=0)
+            dun = bugun - timedelta(days=1)
+            
+            # İşleme gerekli mi karar ver, gerekli değilse erken dön
+            islem_gerekli = False
+            baslangic = None
+            bitis = dun
+            
+            # Eğer son tarih varsa, gün kısmını al
+            if son_tarih is not None:
+                son_guncelleme_gunu = son_tarih.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Eğer son güncelleme bugünse, bu veriyi atla
+                if son_guncelleme_gunu.date() == bugun.date():
+                    self.log(f"{symbol} -> Veriler zaten bugün için güncel (Son güncelleme: {son_guncelleme_gunu.date()})")
+                    return True
+                
+                # Eğer son güncelleme dünse, bugünün verileri henüz tam olmayabilir, atla
+                if son_guncelleme_gunu.date() == dun.date():
+                    self.log(f"{symbol} -> Dünün verileri güncel, bugünün verileri henüz işlenmeyecek (Son güncelleme: {son_guncelleme_gunu.date()})")
+                    return True
                     
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT MAX(tarih) as son_tarih
-                    FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
-                    WHERE parite = ?
-                """, (symbol,))
-                
-                row = cursor.fetchone()
-                son_tarih = row[0] if row and row[0] else None
-                
-                # Bağlantıyı kapat
-                cursor.close()
-                conn.close()
-                
-                # Bugünün ve dünün tarihini al
-                simdi = datetime.now()
-                bugun = simdi.replace(hour=0, minute=0, second=0, microsecond=0)
-                dun = bugun - timedelta(days=1)
-                
-                # Eğer son tarih varsa, gün kısmını al
-                if son_tarih is not None:
-                    son_guncelleme_gunu = son_tarih.replace(hour=0, minute=0, second=0, microsecond=0)
-                    
-                    # Eğer son güncelleme bugünse, bu veriyi atla
-                    if son_guncelleme_gunu.date() == bugun.date():
-                        continue
-                    
-                    # Eğer son güncelleme dünse, bugünün verileri henüz tam olmayabilir, atla
-                    if son_guncelleme_gunu.date() == dun.date():
-                        self.log(f"{symbol} -> Dünün verileri güncel, bugünün verileri henüz işlenmeyecek (Son güncelleme: {son_guncelleme_gunu.date()})")
-                        continue
-                
-                # Eğer veri_var = 1 ise ve son tarih bugün veya dün DEĞİLSE, verileri güncelle
-                if veri_var == 1 and son_tarih is not None:
-                    # Eğer son güncelleme günü bugün veya dün değilse, dünün verilerini al
+                # Eğer veri_var = 1 ise ve son tarih bugün veya dün değilse, verileri güncelle
+                if veri_var == 1:
                     if son_guncelleme_gunu.date() < dun.date():
                         self.log(f"{symbol} -> Son güncelleme: {son_guncelleme_gunu.date()}, dünün verilerine kadar alınacak")
-                        veriler, has_data = self.collect_data(
-                            symbol,
-                            son_guncelleme_gunu + timedelta(days=1),  # Son güncellemeden sonraki gün
-                            dun  # En fazla dünün sonuna kadar
-                        )
-                        if has_data:
-                            self.save_candles(symbol, veriler, ulke)
-                
-                elif son_tarih is None:
-                    # Hiç veri yoksa başlangıç tarihinden itibaren dünün sonuna kadar al
-                    self.log(f"{symbol} -> Hiç veri yok, başlangıçtan dünün sonuna kadar alınacak")
-                    baslangic = self.baslangic_tarihi
-                    if baslangic.date() > dun.date():
-                        baslangic = dun
-                    veriler, has_data = self.collect_data(symbol, baslangic, dun)
-                    if has_data:
-                        self.save_candles(symbol, veriler, ulke)
+                        baslangic = son_guncelleme_gunu + timedelta(days=1)  # Son güncellemeden sonraki gün
+                        islem_gerekli = True
                 else:
                     # Son tarihten sonraki verileri dünün sonuna kadar al
                     son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time())
                     
                     if son_guncelleme.date() < dun.date():
+                        self.log(f"{symbol} -> Son güncelleme: {son_guncelleme.date()}, dünün sonuna kadar veriler alınacak")
                         baslangic = son_guncelleme + timedelta(days=1)
-                        if baslangic.date() > dun.date():
-                            baslangic = dun
-                        veriler, has_data = self.collect_data(symbol, baslangic, dun)
-                        if has_data:
-                            self.save_candles(symbol, veriler, ulke)
-                    else:
-                        continue
+                        islem_gerekli = True
+            else:
+                # Hiç veri yoksa başlangıç tarihinden itibaren dünün sonuna kadar al
+                self.log(f"{symbol} -> Hiç veri yok, başlangıçtan dünün sonuna kadar alınacak")
+                baslangic = self.baslangic_tarihi
+                islem_gerekli = True
                 
-            except Exception as e:
-                self.log(f"İşlem hatası ({symbol}): {str(e)}")
-                continue 
+            # İşlem gerekli değilse erken dön
+            if not islem_gerekli:
+                return True
+                
+            # Başlangıç tarihi geçersizse düzelt
+            if baslangic.date() > dun.date():
+                baslangic = dun
+            
+            # Harici veri topla - bağlantı kapalıyken
+            veriler, has_data = self.collect_data(symbol, baslangic, bitis)
+            
+            # Veri başarıyla toplandıysa kaydet
+            if has_data:
+                return self.save_candles(symbol, veriler, ulke)
+            else:
+                self.log(f"{symbol} -> Veri toplanamadı")
+                return False
+                
+        except Exception as e:
+            self.log(f"İşlem hatası ({symbol}): {str(e)}")
+            return False
+            
+        return False
+            
+    def run(self):
+        """Tüm Forex verilerini toplar"""
+        self.log("="*50)
+        
+        # Bağlantı havuzunu test et
+        test_conn = self._get_connection()
+        if not test_conn:
+            self.log("Veritabanı bağlantısı kurulamadı. İşlem iptal ediliyor.")
+            return
+        self._safe_close(None, test_conn)
+        
+        # USD kurlarını önden yükle
+        self.log("USD kurları yükleniyor...")
+        self._load_usd_pairs()
+        
+        # Aktif pariteleri al
+        pairs = self.get_active_pairs()
+        if not pairs:
+            self.log("İşlenecek Forex verisi yok")
+            return
+            
+        # İşlenecek toplam parite sayısı
+        total_pairs = len(pairs)
+        self.log(f"Toplam {total_pairs} Forex paritesi işlenecek")
+        
+        # Pariteleri küçük gruplara böl
+        group_size = 10  # Çok daha küçük gruplar
+        wait_time_between_groups = 30  # saniye - daha uzun bekleme
+        
+        # İlerleme için sayaçlar
+        processed_pairs = 0
+        successful_pairs = 0
+        
+        # Grupları oluştur
+        for i in range(0, total_pairs, group_size):
+            # Her grup başlangıcında bağlantı havuzunu dinlendirmek için daha uzun bekle
+            if i > 0:
+                self.log(f"Yeni grup başlamadan önce bağlantı havuzunu dinlendirmek için bekleniyor...")
+                time.sleep(30)  # 30 saniye bekle
+                
+            # Bağlantı havuzunu test et
+            test_conn = self._get_connection()
+            if not test_conn:
+                self.log("Veritabanı bağlantısı kurulamadı. Bağlantı havuzu toparlanması için bekleniyor...")
+                time.sleep(self.connection_recovery_time)
+                self.connection_recovery_time *= 2  # Her bağlantı hatası sonrası bekleme süresini artır
+                continue
+            self._safe_close(None, test_conn)
+                
+            group_pairs = pairs[i:i+group_size]
+            group_count = len(group_pairs)
+            group_number = i // group_size + 1
+            total_groups = (total_pairs + group_size - 1) // group_size
+            
+            self.log(f"Grup {group_number}/{total_groups} işleniyor... ({group_count} parite)")
+            
+            # Her 3 grupta bir USD kurlarını yenile
+            if group_number % 3 == 1:
+                self.log("USD kurları yeniden yükleniyor...")
+                self._load_usd_pairs()
+            
+            # Bu gruptaki pariteleri işle
+            for j, pair in enumerate(group_pairs):
+                try:
+                    # Her paritede bir kısa bekleme yap
+                    if j > 0:
+                        time.sleep(5)  # 5 saniye bekle (daha uzun)
+                        
+                    # Pariteyi işle
+                    success = self.process_pair(pair)
+                    if success:
+                        successful_pairs += 1
+                        
+                    # İşlenen parite sayısını artır
+                    processed_pairs += 1
+                    
+                    # İlerleme durumunu göster (her 5 paritede bir veya grubun sonunda)
+                    if j % 5 == 0 or j == group_count - 1:
+                        percent = (processed_pairs / total_pairs) * 100
+                        self.log(f"İlerleme: {processed_pairs}/{total_pairs} parite işlendi (%{percent:.1f}) - Başarılı: {successful_pairs}")
+                        
+                except Exception as e:
+                    self.log(f"Parite işleme hatası: {str(e)}")
+                    processed_pairs += 1
+                    continue
+                    
+            # Grubun son paritesi işlendikten sonra bekle (son grup hariç)
+            if group_number < total_groups:
+                self.log(f"Grup {group_number} tamamlandı. Bağlantı havuzu yenilenmesi için {wait_time_between_groups} saniye bekleniyor...")
+                time.sleep(wait_time_between_groups)
+                
+        # Tüm işlem tamamlandıktan sonra özet göster
+        self.log(f"Forex veri toplama işlemi tamamlandı. Toplam {successful_pairs}/{total_pairs} parite başarıyla işlendi.") 

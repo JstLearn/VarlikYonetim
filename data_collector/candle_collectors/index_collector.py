@@ -2,10 +2,9 @@
 Endeks veri toplama işlemleri
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 import pandas as pd
 import yfinance as yf
-import investpy
 from utils.database import Database
 from utils.config import COLLECTION_CONFIG
 
@@ -21,111 +20,116 @@ class IndexCollector:
         print(f"[{timestamp}] {message}")
         
     def run(self):
-        """Tüm endeks verilerini toplar"""
-        self.log("="*50)
-        
-        # Veritabanı bağlantısını aç
-        conn = self.db.connect()
-        if not conn:
-            self.log("Veritabanı bağlantısı kurulamadı")
-            return
-            
-        cursor = conn.cursor()
+        """Çalışma metodu"""
+        self.log(f"Endeks verileri toplanıyor...")
         
         try:
-            # Aktif pariteleri al
-            pairs = self.get_active_pairs(conn, cursor)
-            if not pairs:
-                self.log("İşlenecek endeks verisi yok")
-                return
+            # Veritabanı bağlantısı
+            conn = self.db.connect()
+            if not conn:
+                self.log("Veritabanına bağlanılamadı")
+                return False
                 
-            self.log(f"Toplam {len(pairs)} endeks işlenecek")
+            cursor = conn.cursor()
+            if not cursor:
+                self.log("Cursor oluşturulamadı")
+                conn.close()
+                return False
+                
+            # Aktif çiftleri al
+            cursor.execute("""
+                SELECT parite, ulke, veri_var, ISNULL(CONVERT(DATE, kayit_tarihi), '1900-01-01') as kayit_tarihi
+                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH(NOLOCK)
+                WHERE aktif = 1 AND tip = 'INDEX'
+            """)
             
-            for pair in pairs:
-                symbol = pair['symbol']
-                ulke = pair['ulke']
+            rows = cursor.fetchall()
+            if not rows:
+                self.log("İşlenecek parite bulunamadı")
+                cursor.close()
+                conn.close()
+                return False
                 
-                # Her parite için bağlantının durumunu kontrol et
-                if conn is None or cursor is None or conn.closed:
-                    self.log(f"Bağlantı kesilmiş, yeniden bağlanılıyor...")
-                    conn = self.db.connect()
-                    if not conn:
-                        self.log("Veritabanı bağlantısı kurulamadı, işlem sonlandırılıyor")
-                        break
-                    cursor = conn.cursor()
+            # İşlem yapılacak endeks sayısı
+            processed_count = 0
+            error_count = 0
+            updated_count = 0
+            skipped_count = 0
+            
+            # Toplam endeks sayısını log
+            self.log(f"Toplam {len(rows)} endeks işlenecek")
+            
+            # Şu anki UTC zamanı
+            now = datetime.now(timezone.utc)
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday = today - timedelta(days=1)
+            yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday_end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+            
+            # Her bir endeksi işle
+            for row in rows:
+                symbol, ulke, veri_var, kayit_tarihi = row
                 
                 try:
-                    # Son kayıt tarihini kontrol et
+                    # Veritabanındaki son kapanış tarihini kontrol et
                     cursor.execute("""
-                        SELECT MAX(tarih) as son_tarih
-                        FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
-                        WHERE parite = ?
+                        SELECT TOP 1 tarih
+                        FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH(NOLOCK)
+                        WHERE parite = ? AND [interval] = '1d'
+                        ORDER BY tarih DESC
                     """, (symbol,))
                     
-                    row = cursor.fetchone()
-                    son_tarih = row[0] if row and row[0] else None
+                    son_tarih_row = cursor.fetchone()
+                    son_tarih = None if son_tarih_row is None else son_tarih_row[0]
                     
-                    if son_tarih is None:
-                        # Hiç veri yoksa başlangıç tarihinden itibaren al
-                        veriler = self.collect_data(symbol, self.baslangic_tarihi, None, conn, cursor, ulke)
-                        if not veriler.empty:
-                            self.save_candles(symbol, veriler, ulke, conn, cursor)
-                    else:
-                        # Son tarihten sonraki verileri al
-                        simdi = datetime.now(timezone.utc)
-                        son_guncelleme = datetime.combine(son_tarih.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+                    if veri_var == 0 or son_tarih is None:
+                        # Hiç veri yoksa, başlangıç tarihinden dünün sonuna kadar veri topla
+                        result = self.collect_data(symbol, ulke, self.baslangic_tarihi, yesterday_end.strftime('%Y-%m-%d'), conn, cursor)
                         
-                        # Bugünün bir gün öncesini al, bugünün verilerini toplamayalım
-                        dun = (simdi - timedelta(days=1)).date()
-                        
-                        if son_guncelleme.date() < dun:
-                            veriler = self.collect_data(
-                                symbol,
-                                son_guncelleme + timedelta(days=1),
-                                datetime.combine(dun, datetime.max.time()).replace(tzinfo=timezone.utc),  # Dünün son anına kadar
-                                conn,
-                                cursor,
-                                ulke
-                            )
-                            if not veriler.empty:
-                                self.save_candles(symbol, veriler, ulke, conn, cursor)
+                        if result:
+                            updated_count += 1
                         else:
-                            continue
+                            error_count += 1
+                            
+                    else:
+                        # Son kayıt tarihini datetime'a çevir
+                        son_tarih_dt = son_tarih.replace(tzinfo=timezone.utc) if son_tarih.tzinfo is None else son_tarih
+                        
+                        # Son tarih dünden önceyse yeni veri topla
+                        if son_tarih_dt < yesterday_start:
+                            # Son tarihten sonraki günden dünün sonuna kadar veri topla
+                            yeni_baslangic = (son_tarih_dt + timedelta(days=1)).strftime('%Y-%m-%d')
+                            result = self.collect_data(symbol, ulke, yeni_baslangic, yesterday_end.strftime('%Y-%m-%d'), conn, cursor)
+                            
+                            if result:
+                                updated_count += 1
+                            else:
+                                error_count += 1
+                        else:
+                            # Veritabanı güncel, yeni veri çekmeye gerek yok
+                            self.log(f"{symbol} için veritabanı güncel (son veri tarihi: {son_tarih.strftime('%Y-%m-%d')}), yeni veri çekilmiyor")
+                            skipped_count += 1
                     
-                    # İşlem başarılı olduysa, değişiklikleri kaydet
-                    conn.commit()
+                    processed_count += 1
                     
                 except Exception as e:
-                    self.log(f"İşlem hatası ({symbol}): {str(e)}")
-                    # Hata durumunda rollback yap
-                    try:
-                        if not conn.closed:
-                            conn.rollback()
-                    except Exception as e:
-                        self.log(f"Rollback hatası: {str(e)}")
-                        # Bağlantı kapalıysa, yeniden açmayı dene
-                        try:
-                            if conn.closed:
-                                conn = self.db.connect()
-                                if conn:
-                                    cursor = conn.cursor()
-                        except:
-                            pass
-                        
-            self.log("Endeks veri toplama tamamlandı.")
-                
-        except Exception as e:
-            self.log(f"Genel hata: {str(e)}")
-        finally:
-            # Bağlantıyı kapat
-            try:
-                if cursor and not getattr(cursor, 'closed', False):
-                    cursor.close()
-                if conn and not conn.closed:
-                    conn.close()
-            except Exception as e:
-                self.log(f"Bağlantı kapatma hatası: {str(e)}")
+                    error_count += 1
+                    self.log(f"Endeks işleme hatası ({symbol}): {str(e)}")
+                    continue
+                    
+            # İşlem sonucunu log
+            self.log(f"İşlem tamamlandı. Toplam: {len(rows)}, İşlenen: {processed_count}, Atlanılan: {skipped_count}, Güncellenen: {updated_count}, Hata: {error_count}")
             
+            # Bağlantıyı kapat
+            cursor.close()
+            conn.close()
+            
+            return True
+            
+        except Exception as e:
+            self.log(f"Veritabanı hatası: {str(e)}")
+            return False
+        
     def get_active_pairs(self, conn=None, cursor=None):
         """Aktif endeks paritelerini getirir"""
         close_conn = False
@@ -171,292 +175,104 @@ class IndexCollector:
             # Sadece kendimiz açtığımız bağlantıyı kapatırız
             if close_conn:
                 try:
-                    if own_cursor and not getattr(own_cursor, 'closed', False):
+                    if own_cursor and not getattr(own_cursor, 'closed', True):
                         own_cursor.close()
-                    if own_conn and not getattr(own_conn, 'closed', False):
+                    if own_conn and not getattr(own_conn, 'closed', True):
                         own_conn.close()
                 except Exception as e:
                     self.log(f"Bağlantı kapatma hatası: {str(e)}")
             
-    def collect_data(self, symbol, start_date, end_date=None, conn=None, cursor=None, ulke=None):
-        """Endeks verilerini önce yfinance, sonra investpy'dan toplar"""
-        # Bugünün tarihini alalım (end_date None ise)
-        end_date = end_date or datetime.now(timezone.utc)
-        
-        # Tarihleri string formatına çevir
-        start_str = start_date.strftime('%Y-%m-%d')
-        end_str = end_date.strftime('%Y-%m-%d')
-        
-        # 1. ADIM: yfinance'dan veri almayı dene
+    def collect_data(self, symbol, ulke, start_date, end_date=None, conn=None, cursor=None):
+        """Endeks verilerini yfinance'den toplar ve veritabanına kaydeder"""
         try:
-            
-            # Tüm uyarıları bastır
-            import warnings, sys, io
-            warnings.filterwarnings('ignore')
-            
-            # yfinance hata mesajlarını yakala
-            stderr = sys.stderr
-            sys.stderr = io.StringIO()
-            
-            # Symbol formatını kontrol et ve ayarla
-            yf_symbol = symbol.split('/')[0] if '/' in symbol else symbol
-            
-            # yfinance'den veri çek
-            df = yf.download(
-                tickers=yf_symbol,
-                start=start_str,
-                end=end_str,
-                interval='1d',
-                progress=False,
-                auto_adjust=True,
-                prepost=False,
-                threads=False
-            )
-            
-            # Hata mesajını al
-            error_output = sys.stderr.getvalue()
-            sys.stderr = stderr
-            
-            # Verileri kontrol et
-            if (not df.empty and 
-                'Open' in df.columns and 
-                'High' in df.columns and 
-                'Low' in df.columns and 
-                'Close' in df.columns):
+            # Başlangıç tarihini datetime.date formatından datetime formatına dönüştür
+            if isinstance(start_date, str):
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            elif isinstance(start_date, date) and not isinstance(start_date, datetime):
+                start_date = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
                 
-                # DataFrame'i düzenle
-                df = df.rename(columns={
-                    'Open': 'open',
-                    'High': 'high',
-                    'Low': 'low',
-                    'Close': 'close',
-                    'Volume': 'volume'
-                })
+            # Bitiş tarihini kontrol et
+            if end_date is None:
+                # UTC+0'a göre dünün sonunu al
+                now = datetime.now(timezone.utc)
+                yesterday = (now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1))
+                end_date = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+                self.log(f"Bitiş tarihi belirtilmemiş, {end_date.strftime('%Y-%m-%d %H:%M:%S')} kullanılıyor")
+            elif isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, '%Y-%m-%d')
+                # Eğer saat bilgisi yoksa, günün sonunu al
+                if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+                    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_date = end_date.replace(tzinfo=timezone.utc)
                 
-                # Volume yoksa ekle
-                if 'volume' not in df.columns:
-                    df['volume'] = 0
+            # Tarihleri string formatına çevir
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')  # yfinance bitiş tarihini dahil etmiyor, +1 gün ekle
+            
+            self.log(f"{symbol} veri toplanıyor: {start_str} -> {end_date.strftime('%Y-%m-%d')}")
+            
+            # yfinance'dan veri almayı dene
+            try:
+                # Tüm uyarıları bastır
+                import warnings, sys, io
+                warnings.filterwarnings('ignore')
                 
-                # Verilerin geçerliliğini kontrol et
-                required_cols = ['open', 'high', 'low', 'close']
-                if not df[required_cols].isnull().any().any():
-                    self._update_data_status(symbol, True, conn, cursor)
-                    return df
-                        
-        except Exception as e:
-            self.log(f"yf: {symbol} veri alma hatası: {str(e)}")
-        
-        # 2. ADIM: investpy'dan veri almayı dene
-        try:
-            
-            # Symbol ve ülke formatını kontrol et
-            index_symbol = symbol.split('/')[0] if '/' in symbol else symbol
-            
-            # Ülke adını düzelt - investpy küçük harf bekler
-            country = ulke.lower() if ulke else None
-            
-            # Özel durumlar için ülke adı kontrolü
-            if country == "usa":
-                country = "united states"
-            elif country == "uk":
-                country = "united kingdom"
-            
-            # Tarih formatını ayarla (investpy için d/m/Y formatı)
-            from_date = start_date.strftime('%d/%m/%Y')
-            to_date = end_date.strftime('%d/%m/%Y')
-            
-            # Endeks verisini al
-            if country:
-                try:
-                    # İlk ülkeye göre arama yap
-                    historical_data = investpy.indices.get_index_historical_data(
-                        index=index_symbol,
-                        country=country,
-                        from_date=from_date,
-                        to_date=to_date
-                    )
+                # Symbol formatını kontrol et ve ayarla
+                yf_symbol = symbol.split('/')[0] if '/' in symbol else symbol
+                
+                # yfinance'den veri çek
+                df = yf.download(
+                    tickers=yf_symbol,
+                    start=start_str,
+                    end=end_str,  # Bitiş tarihine +1 gün eklenmiş halde
+                    interval='1d',
+                    progress=False,
+                    auto_adjust=True,
+                    prepost=False,
+                    threads=False
+                )
+                
+                # Verileri kontrol et
+                if (not df.empty and 
+                    'Open' in df.columns and 
+                    'High' in df.columns and 
+                    'Low' in df.columns and 
+                    'Close' in df.columns):
                     
-                    if not historical_data.empty:
-                        # DataFrame'i düzenle
-                        historical_data = historical_data.rename(columns={
-                            'Open': 'open',
-                            'High': 'high',
-                            'Low': 'low',
-                            'Close': 'close',
-                            'Volume': 'volume'
-                        })
-                        
-                        # Verilerin geçerliliğini kontrol et
-                        required_cols = ['open', 'high', 'low', 'close']
-                        if all(col in historical_data.columns for col in required_cols):
-                            if not historical_data[required_cols].isnull().any().any():
-                                self._update_data_status(symbol, True, conn, cursor)
-                                return historical_data
+                    # DataFrame'i düzenle
+                    df = df.rename(columns={
+                        'Open': 'open',
+                        'High': 'high',
+                        'Low': 'low',
+                        'Close': 'close',
+                        'Volume': 'volume'
+                    })
                     
-                except Exception:
-                    pass
-                
-                try:
-                    # Ülkeye göre arama başarısız olduysa, sembol adı ile arama yap
-                    search_results = investpy.search_indices(
-                        by='name',
-                        value=index_symbol
-                    )
+                    # Index ismi 'Date' olacak şekilde düzenle
+                    df.index.name = 'Date'
                     
-                    if not search_results.empty:
-                        found_index = search_results.iloc[0]
-                        found_country = found_index['country']
-                        found_name = found_index['name']
-                        
-                        historical_data = investpy.indices.get_index_historical_data(
-                            index=found_name,
-                            country=found_country,
-                            from_date=from_date,
-                            to_date=to_date
-                        )
-                        
-                        if not historical_data.empty:
-                            # DataFrame'i düzenle
-                            historical_data = historical_data.rename(columns={
-                                'Open': 'open',
-                                'High': 'high',
-                                'Low': 'low',
-                                'Close': 'close',
-                                'Volume': 'volume'
-                            })
-                            
-                            # Verilerin geçerliliğini kontrol et
-                            required_cols = ['open', 'high', 'low', 'close']
-                            if all(col in historical_data.columns for col in required_cols):
-                                if not historical_data[required_cols].isnull().any().any():
-                                    self._update_data_status(symbol, True, conn, cursor)
-                                    return historical_data
-                except Exception:
-                    pass
-                            
-        except Exception as e:
-            self.log(f"invest: {symbol} veri alma hatası: {str(e)}")
-        
-        # Her iki API de başarısız oldu, veri durumunu false olarak güncelle
-        self._update_data_status(symbol, False, conn, cursor)
-        return pd.DataFrame()  # Boş veri döndür
-            
-    def _update_data_status(self, symbol, has_data, conn=None, cursor=None):
-        """Endeks için veri durumunu günceller"""
-        close_conn = False
-        own_conn = None
-        own_cursor = None
-        
-        try:
-            # Bağlantı yönetimi
-            if conn is None or cursor is None or getattr(conn, 'closed', False):
-                close_conn = True
-                own_conn = self.db.connect()
-                if not own_conn:
-                    self.log(f"{symbol} için veritabanı bağlantısı kurulamadı (veri_var güncellemesi)")
-                    return
-                own_cursor = own_conn.cursor()
+                    # Veritabanına kaydet
+                    result = self.save_candles(symbol, df, ulke, conn, cursor)
+                    
+                    # Başarılı ise True döndür
+                    if result:
+                        self.log(f"{symbol} için {len(df)} kayıt bulundu ve işlendi")
+                        return True
+                    else:
+                        self.log(f"{symbol} verileri kaydedilirken hata oluştu")
+                        return False
+                else:
+                    self.log(f"{symbol} için yfinance'den veri bulunamadı")
+                    return False
                 
-            # Kullanılacak bağlantı ve cursor
-            working_conn = conn if conn and not getattr(conn, 'closed', False) else own_conn
-            working_cursor = cursor if cursor and not getattr(cursor, 'closed', False) else own_cursor
-            
-            # Her durumda güncelle
-            yeni_durum = 1 if has_data else 0
-            working_cursor.execute("""
-                UPDATE p
-                SET p.veri_var = ?, p.borsa = ?
-                FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
-                WHERE p.parite = ?
-            """, (yeni_durum, symbol, symbol))
-            
-            # Eğer dışarıdan bir bağlantı aldıysak commit yapmıyoruz
-            # Çünkü işlem bütünlüğünü korumak için ana metodun commit yapması gerekiyor
-            if close_conn:
-                working_conn.commit()
-                            
-        except Exception as e:
-            self.log(f"Veri durumu güncellenemedi ({symbol}) - Hata: {str(e)}")
-            if close_conn and own_conn and not getattr(own_conn, 'closed', False):
-                try:
-                    own_conn.rollback()
-                except Exception as ex:
-                    self.log(f"Rollback hatası: {str(ex)}")
-        finally:
-            # Sadece kendimiz açtığımız bağlantıyı kapatırız
-            if close_conn:
-                try:
-                    if own_cursor and not getattr(own_cursor, 'closed', False):
-                        own_cursor.close()
-                    if own_conn and not getattr(own_conn, 'closed', False):
-                        own_conn.close()
-                except Exception as e:
-                    self.log(f"Bağlantı kapatma hatası: {str(e)}")
-            
-    def get_dolar_karsiligi(self, fiyat, ulke, conn=None, cursor=None):
-        """Endeksin dolar karşılığını hesaplar"""
-        if ulke == 'USA':  # Amerikan endeksleri zaten dolar bazında
-            return fiyat
-            
-        # Veritabanından döviz kurunu al
-        close_conn = False
-        own_conn = None
-        own_cursor = None
-        
-        try:
-            # Bağlantı yönetimi
-            if conn is None or cursor is None or getattr(conn, 'closed', False):
-                close_conn = True
-                own_conn = self.db.connect()
-                if not own_conn:
-                    return None
-                own_cursor = own_conn.cursor()
+            except Exception as e:
+                self.log(f"{symbol} için yfinance hatası: {str(e)}")
+                return False
                 
-            # Kullanılacak bağlantı ve cursor
-            working_conn = conn if conn and not getattr(conn, 'closed', False) else own_conn
-            working_cursor = cursor if cursor and not getattr(cursor, 'closed', False) else own_cursor
-            
-            # Ülke para birimi kodunu belirle
-            currency_map = {
-                'Turkey': 'TRY',
-                'Japan': 'JPY',
-                'UK': 'GBP',
-                'Europe': 'EUR',
-                # Diğer ülkeler eklenebilir
-            }
-            
-            currency = currency_map.get(ulke)
-            if not currency:
-                return None
-                
-            working_cursor.execute("""
-                SELECT TOP 1 fiyat
-                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
-                WHERE parite = ? AND borsa = 'FOREX'
-                ORDER BY tarih DESC
-            """, (f"{currency}/USD",))
-            
-            row = working_cursor.fetchone()
-            if row:
-                currency_usd = float(row[0])
-                return fiyat / currency_usd  # Endeks değerini dolara çevir
-            
-            return None
-            
         except Exception as e:
-            self.log(f"Dolar karşılığı hesaplama hatası: {str(e)}")
-            return None
-        finally:
-            # Sadece kendimiz açtığımız bağlantıyı kapatırız
-            if close_conn:
-                try:
-                    if own_cursor and not getattr(own_cursor, 'closed', False):
-                        own_cursor.close()
-                    if own_conn and not getattr(own_conn, 'closed', False):
-                        own_conn.close()
-                except Exception as e:
-                    self.log(f"Bağlantı kapatma hatası: {str(e)}")
-
+            self.log(f"{symbol} için veri toplama hatası: {str(e)}")
+            return False
+            
     def save_candles(self, symbol, df, ulke, conn=None, cursor=None):
         """Mum verilerini veritabanına kaydeder"""
         if df.empty:
@@ -499,7 +315,7 @@ class IndexCollector:
                 currency = currency_map.get(ulke)
                 working_cursor.execute("""
                     SELECT TOP 1 fiyat
-                    FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
+                    FROM [VARLIK_YONETIM].[dbo].[kurlar]
                     WHERE parite = ? AND borsa = 'FOREX'
                     ORDER BY tarih DESC
                 """, (f"{currency}/USD",))
@@ -521,45 +337,63 @@ class IndexCollector:
                         dolar_karsiligi = fiyat / currency_usd
                     else:
                         # Döviz kuru bulunamadıysa, varsayılan olarak fiyatın kendisini kullan
-                        # ve uyarı mesajı göster
                         dolar_karsiligi = fiyat
                         
                     working_cursor.execute("""
                         INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke)
                         SELECT ?, ?, ?, ?, ?, ?, ?, ?
                         WHERE NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH (NOLOCK)
+                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar]
                             WHERE parite = ? AND [interval] = ? AND tarih = ?
                         )
                     """, 
                     (symbol, '1d', tarih, fiyat, dolar_karsiligi, exchange, 'INDEX', ulke, 
                      symbol, '1d', tarih))
                     
-                    kayit_sayisi += 1
+                    if working_cursor.rowcount > 0:
+                        kayit_sayisi += 1
+                        # Yeni kapanış fiyatlarını logla
+                        self.log(f"🔍 YENİ VERİ - {symbol} için {tarih.strftime('%Y-%m-%d')}: Kapanış fiyatı = {fiyat}, USD karşılığı = {dolar_karsiligi:.2f}")
                     
                 except Exception as e:
-                    pass
+                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
+                    continue
                     
-            # Her durumda commit yap - sadece bağlantı açık ise
+            # Veriler kaydedildi, commit yap - sadece bağlantı açık ise
             if not getattr(working_conn, 'closed', False):
                 working_conn.commit()
             
+            # Veri başarıyla kaydedildi, veri_var'ı 1 olarak güncelle (kayıt sayısı 0 olsa bile)
+            try:
+                # SQL sorgusunu basitleştir, NOLOCK kaldır
+                working_cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = 1, 
+                        borsa = ?, 
+                        kayit_tarihi = GETDATE()
+                    WHERE parite = ?
+                """, (exchange, symbol))
+                
+                # Etkilenen satır sayısını al
+                row_count = working_cursor.rowcount
+                
+                # Her durumda commit yap
+                if not getattr(working_conn, 'closed', False):
+                    working_conn.commit()
+                    
+                # Güncelleme başarılı oldu mu kontrol et
+                if row_count > 0:
+                    self.log(f"{symbol} için veri_var = 1 olarak güncellendi")
+                else:
+                    self.log(f"{symbol} için güncelleme yapılamadı (etkilenen satır: {row_count})")
+                
+            except Exception as e:
+                self.log(f"Parite durumu güncellenemedi ({symbol}): {str(e)}")
+                
             if kayit_sayisi > 0:
                 self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
-                # Veri başarıyla kaydedildi, veri_var'ı 1 yap ve borsa bilgisini güncelle
-                try:
-                    working_cursor.execute("""
-                        UPDATE p
-                        SET p.veri_var = ?, p.borsa = ?, p.kayit_tarihi = GETDATE()
-                        FROM [VARLIK_YONETIM].[dbo].[pariteler] p WITH (NOLOCK)
-                        WHERE p.parite = ?
-                    """, (1, exchange, symbol))
-                    
-                    # Her durumda commit yap
-                    if not getattr(working_conn, 'closed', False):
-                        working_conn.commit()
-                except Exception as e:
-                    self.log(f"Parite durumu güncellenemedi ({symbol}): {str(e)}")
+            else:
+                self.log(f"{symbol} için veritabanı güncel, yeni kayıt yok")
                 
             return True
             
@@ -575,9 +409,9 @@ class IndexCollector:
             # Sadece kendimiz açtığımız bağlantıyı kapatırız
             if close_conn:
                 try:
-                    if own_cursor and not getattr(own_cursor, 'closed', False):
+                    if own_cursor and not getattr(own_cursor, 'closed', True):
                         own_cursor.close()
-                    if own_conn and not getattr(own_conn, 'closed', False):
+                    if own_conn and not getattr(own_conn, 'closed', True):
                         own_conn.close()
                 except Exception as e:
                     self.log(f"Bağlantı kapatma hatası: {str(e)}") 

@@ -43,8 +43,8 @@ def collect_data(args):
             collectors.append(PariteIndexCollector())                
         if args.source in ['all', 'forex']:
             collectors.append(PariteForexCollector())
-#        if args.source in ['all', 'stock']:
-#            collectors.append(PariteStockCollector())
+    #    if args.source in ['all', 'stock']:
+    #        collectors.append(PariteStockCollector())
 
             
     # Mum toplayıcıları
@@ -57,8 +57,8 @@ def collect_data(args):
             collectors.append(CandleBinanceSpotCollector())
         if args.source in ['all', 'index']:
             collectors.append(CandleIndexCollector())
-#        if args.source in ['all', 'forex']:
-#            collectors.append(CandleForexCollector())
+        if args.source in ['all', 'forex']:
+            collectors.append(CandleForexCollector())
 #        if args.source in ['all', 'stock']:
 #            collectors.append(CandleStockCollector())
             
