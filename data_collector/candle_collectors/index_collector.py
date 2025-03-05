@@ -5,6 +5,7 @@ Endeks veri toplama işlemleri
 from datetime import datetime, timezone, timedelta, date
 import pandas as pd
 import yfinance as yf
+import investpy
 from utils.database import Database
 from utils.config import COLLECTION_CONFIG
 
@@ -19,9 +20,47 @@ class IndexCollector:
         timestamp = datetime.now().strftime('%H:%M:%S')
         print(f"[{timestamp}] {message}")
         
+    def get_yfinance_symbol(self, symbol, ulke=None):
+        """Veritabanı sembolünü yfinance'in beklediği formata dönüştürür"""
+        # Eğer sembol bir / içeriyorsa, / öncesini al
+        base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
+        
+        # Temel format dönüşümleri - yfinance'in genel beklentileri
+        if base_symbol.startswith('.'):
+            # Nokta ile başlayan sembolleri ^ ile değiştir
+            return f"^{base_symbol[1:]}"
+        elif ulke == 'Turkey' and not base_symbol.endswith('.IS'):
+            # Türkiye endeksleri için .IS eki ekle
+            return f"{base_symbol}.IS"
+        elif ulke == 'UK' and not base_symbol.endswith('.L'):
+            # İngiltere endeksleri için .L eki ekle
+            return f"{base_symbol}.L"
+        
+        # Diğer durumlarda sembolü olduğu gibi kullan
+        return base_symbol
+        
+    def get_investing_symbol(self, symbol, ulke=None):
+        """Veritabanı sembolünü investing.com'un beklediği formata dönüştürür"""
+        # Eğer sembol bir / içeriyorsa, / öncesini al
+        base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
+        
+        # Basit format dönüşümleri
+        # Nokta ile başlayan sembolleri düzelt
+        if base_symbol.startswith('.'):
+            return base_symbol[1:]
+            
+        # Ülke bazlı ek kaldırmaları
+        if ulke == 'Turkey' and base_symbol.endswith('.IS'):
+            return base_symbol[:-3] # .IS ekini kaldır
+            
+        if ulke == 'UK' and base_symbol.endswith('.L'):
+            return base_symbol[:-2] # .L ekini kaldır
+            
+        return base_symbol
+        
     def run(self):
         """Çalışma metodu"""
-        self.log(f"Endeks verileri toplanıyor...")
+        self.log("="*50)
         
         try:
             # Veritabanı bağlantısı
@@ -36,11 +75,11 @@ class IndexCollector:
                 conn.close()
                 return False
                 
-            # Aktif çiftleri al
+            # Aktif çiftleri al - veri_var NULL veya 1 olanları getir
             cursor.execute("""
-                SELECT parite, ulke, veri_var, ISNULL(CONVERT(DATE, kayit_tarihi), '1900-01-01') as kayit_tarihi
+                SELECT parite, ulke, ISNULL(veri_var, 0) as veri_var, ISNULL(CONVERT(DATE, kayit_tarihi), '1900-01-01') as kayit_tarihi
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH(NOLOCK)
-                WHERE aktif = 1 AND tip = 'INDEX'
+                WHERE aktif = 1 AND tip = 'INDEX' AND (veri_var = 1 OR veri_var IS NULL)
             """)
             
             rows = cursor.fetchall()
@@ -115,7 +154,6 @@ class IndexCollector:
                 except Exception as e:
                     error_count += 1
                     self.log(f"Endeks işleme hatası ({symbol}): {str(e)}")
-                    continue
                     
             # İşlem sonucunu log
             self.log(f"İşlem tamamlandı. Toplam: {len(rows)}, İşlenen: {processed_count}, Atlanılan: {skipped_count}, Güncellenen: {updated_count}, Hata: {error_count}")
@@ -182,8 +220,41 @@ class IndexCollector:
                 except Exception as e:
                     self.log(f"Bağlantı kapatma hatası: {str(e)}")
             
+    def update_data_status(self, symbol, has_data, conn=None, cursor=None):
+        """Endeks için veri durumunu günceller"""
+        local_conn = False
+        try:
+            # Bağlantı yoksa yeni bir bağlantı oluştur
+            if conn is None or cursor is None:
+                conn = self.db.connect()
+                cursor = conn.cursor()
+                local_conn = True
+                
+            # Veri durumunu güncelle
+            # MSSQL için ? parametrelerini kullan
+            query = """
+                UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                SET veri_var = ?, kayit_tarihi = GETDATE()
+                WHERE parite = ?
+            """
+            cursor.execute(query, (1 if has_data else 0, symbol))
+            conn.commit()
+            
+            # Log
+            self.log(f"{symbol} için veri_var = {1 if has_data else 0} olarak güncellendi")
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            self.log(f"Veri durumu güncellenirken hata: {str(e)}")
+        finally:
+            # Yerel bağlantıyı kapat
+            if local_conn and conn:
+                cursor.close()
+                conn.close()
+                    
     def collect_data(self, symbol, ulke, start_date, end_date=None, conn=None, cursor=None):
-        """Endeks verilerini yfinance'den toplar ve veritabanına kaydeder"""
+        """Endeks verilerini yfinance ve investing.com'dan toplar"""
         try:
             # Başlangıç tarihini datetime.date formatından datetime formatına dönüştür
             if isinstance(start_date, str):
@@ -197,7 +268,6 @@ class IndexCollector:
                 now = datetime.now(timezone.utc)
                 yesterday = (now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1))
                 end_date = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
-                self.log(f"Bitiş tarihi belirtilmemiş, {end_date.strftime('%Y-%m-%d %H:%M:%S')} kullanılıyor")
             elif isinstance(end_date, str):
                 end_date = datetime.strptime(end_date, '%Y-%m-%d')
                 # Eğer saat bilgisi yoksa, günün sonunu al
@@ -209,68 +279,280 @@ class IndexCollector:
             start_str = start_date.strftime('%Y-%m-%d')
             end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')  # yfinance bitiş tarihini dahil etmiyor, +1 gün ekle
             
-            self.log(f"{symbol} veri toplanıyor: {start_str} -> {end_date.strftime('%Y-%m-%d')}")
+            df = None
             
-            # yfinance'dan veri almayı dene
-            try:
-                # Tüm uyarıları bastır
-                import warnings, sys, io
-                warnings.filterwarnings('ignore')
-                
-                # Symbol formatını kontrol et ve ayarla
-                yf_symbol = symbol.split('/')[0] if '/' in symbol else symbol
-                
-                # yfinance'den veri çek
-                df = yf.download(
-                    tickers=yf_symbol,
-                    start=start_str,
-                    end=end_str,  # Bitiş tarihine +1 gün eklenmiş halde
-                    interval='1d',
-                    progress=False,
-                    auto_adjust=True,
-                    prepost=False,
-                    threads=False
-                )
-                
-                # Verileri kontrol et
-                if (not df.empty and 
-                    'Open' in df.columns and 
-                    'High' in df.columns and 
-                    'Low' in df.columns and 
-                    'Close' in df.columns):
+            # 1. ADIM: yfinance'dan veri almayı dene
+            # Farklı yfinance sembol formatlarını deneyeceğiz
+            yfinance_deneme_sembolleri = []
+            
+            # 1. İlk temel formatta sembol ekle
+            base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
+            yfinance_deneme_sembolleri.append(base_symbol)
+            
+            # 2. Dönüştürülmüş sembolü ekle
+            yf_symbol = self.get_yfinance_symbol(symbol, ulke)
+            if yf_symbol != base_symbol and yf_symbol not in yfinance_deneme_sembolleri:
+                yfinance_deneme_sembolleri.append(yf_symbol)
+            
+            # 3. Genel bilinen dönüşümleri ekle
+            if base_symbol == 'SPX':
+                yfinance_deneme_sembolleri.append('^GSPC')
+            elif base_symbol == 'DJI':
+                yfinance_deneme_sembolleri.append('^DJI')
+            elif base_symbol == 'IXIC':
+                yfinance_deneme_sembolleri.append('^IXIC')
+            elif base_symbol == 'BIST100':
+                yfinance_deneme_sembolleri.append('^XU100')
+            elif base_symbol == 'BIST30':
+                yfinance_deneme_sembolleri.append('^XU030')
+            elif base_symbol == 'DAX':
+                yfinance_deneme_sembolleri.append('^GDAXI')
+            elif base_symbol == 'FTSE':
+                yfinance_deneme_sembolleri.append('^FTSE')
+            elif base_symbol == 'N225':
+                yfinance_deneme_sembolleri.append('^N225')
+            
+            # 4. Nokta ile başlayan sembolleri ^ ile değiştir
+            if base_symbol.startswith('.') and f"^{base_symbol[1:]}" not in yfinance_deneme_sembolleri:
+                yfinance_deneme_sembolleri.append(f"^{base_symbol[1:]}")
+            
+            # Yfinance sembollerini dene
+            yf_success = False
+            yf_used_symbol = None
+            
+            for deneme_symbol in yfinance_deneme_sembolleri:
+                try:
+                    # Tüm uyarıları bastır
+                    import warnings
+                    import sys
+                    import io
                     
-                    # DataFrame'i düzenle
-                    df = df.rename(columns={
-                        'Open': 'open',
-                        'High': 'high',
-                        'Low': 'low',
-                        'Close': 'close',
-                        'Volume': 'volume'
-                    })
+                    # Özellikle yfinance'in auto_adjust uyarısını filtreleme
+                    warnings.filterwarnings('ignore', category=UserWarning)
+                    warnings.filterwarnings('ignore', message='.*auto_adjust.*')
                     
-                    # Index ismi 'Date' olacak şekilde düzenle
-                    df.index.name = 'Date'
+                    # stdout ve stderr'i geçici olarak yönlendir
+                    old_stdout = sys.stdout
+                    old_stderr = sys.stderr
+                    sys.stdout = io.StringIO()
+                    sys.stderr = io.StringIO()
                     
-                    # Veritabanına kaydet
-                    result = self.save_candles(symbol, df, ulke, conn, cursor)
+                    try:
+                        # yfinance'den veri çek
+                        df = yf.download(
+                            tickers=deneme_symbol,
+                            start=start_str,
+                            end=end_str,
+                            interval='1d',
+                            progress=False,
+                            auto_adjust=True,
+                            prepost=False,
+                            threads=False
+                        )
+                    finally:
+                        # stdout ve stderr'i eski haline getir
+                        sys.stdout = old_stdout
+                        sys.stderr = old_stderr
                     
-                    # Başarılı ise True döndür
-                    if result:
-                        self.log(f"{symbol} için {len(df)} kayıt bulundu ve işlendi")
-                        return True
-                    else:
-                        self.log(f"{symbol} verileri kaydedilirken hata oluştu")
-                        return False
-                else:
-                    self.log(f"{symbol} için yfinance'den veri bulunamadı")
-                    return False
+                    # Verileri kontrol et
+                    if (not df.empty and 
+                        'Open' in df.columns and 
+                        'High' in df.columns and 
+                        'Low' in df.columns and 
+                        'Close' in df.columns):
+                        
+                        # DataFrame'i düzenle
+                        df = df.rename(columns={
+                            'Open': 'open',
+                            'High': 'high',
+                            'Low': 'low',
+                            'Close': 'close',
+                            'Volume': 'volume'
+                        })
+                        
+                        # Index ismi 'Date' olacak şekilde düzenle
+                        df.index.name = 'Date'
+                        
+                        yf_success = True
+                        yf_used_symbol = deneme_symbol
+                        break
+                except Exception:
+                    continue
+            
+            # Yfinance başarılı olduysa veya değilse log
+            format_str = ', '.join(yfinance_deneme_sembolleri)
+            if yf_success and yf_used_symbol:
+                # Veritabanına kaydet
+                result = self.save_candles(symbol, df, ulke, conn, cursor)
                 
-            except Exception as e:
-                self.log(f"{symbol} için yfinance hatası: {str(e)}")
+                # Başarılı ise True döndür
+                if result:
+                    self.log(f"[yfinance] {symbol} için {yf_used_symbol} formatında veri bulundu ({len(df)} kayıt)")
+                    # Veri bulundu ve kaydedildi - run metodu dışarıdan çağırmışsa buradan return
+                    return True
                 return False
+            else:
+                self.log(f"[yfinance] {symbol} için {format_str} formatlarında denedim veri bulamadım")
+            
+            # 2. ADIM: investing.com'dan veri almayı dene
+            try:
+                # Ülke adını düzelt - investpy küçük harf bekler
+                country = ulke.lower() if ulke else None
                 
+                # Özel durumlar için ülke adı kontrolü
+                if country == "usa":
+                    country = "united states"
+                elif country == "uk":
+                    country = "united kingdom"
+                
+                # Tarih formatını ayarla (investpy için d/m/Y formatı)
+                from_date = start_date.strftime('%d/%m/%Y')
+                to_date = end_date.strftime('%d/%m/%Y')
+                
+                # Investing.com için sembol formatları hazırla
+                investing_deneme_sembolleri = []
+                
+                # 1. İlk olarak temel sembolü ekle
+                investing_symbol = self.get_investing_symbol(symbol, ulke)
+                investing_deneme_sembolleri.append(investing_symbol)
+                
+                # 2. Genel bilinen dönüşümleri ekle
+                if base_symbol == 'SPX':
+                    investing_deneme_sembolleri.append('S&P 500')
+                elif base_symbol == 'DJI':
+                    investing_deneme_sembolleri.append('Dow 30')
+                elif base_symbol == 'IXIC':
+                    investing_deneme_sembolleri.append('Nasdaq')
+                elif base_symbol == 'BIST100':
+                    investing_deneme_sembolleri.append('BIST 100')
+                elif base_symbol == 'BIST30':
+                    investing_deneme_sembolleri.append('BIST 30')
+                elif base_symbol == 'DAX':
+                    investing_deneme_sembolleri.append('DAX 30')
+                    investing_deneme_sembolleri.append('DAX')
+                elif base_symbol == 'FTSE':
+                    investing_deneme_sembolleri.append('FTSE 100')
+                elif base_symbol == 'N225':
+                    investing_deneme_sembolleri.append('Nikkei 225')
+                
+                # Her bir deneme sembolü için döngü
+                invest_success = False
+                invest_used_symbol = None
+                
+                # Direkt sorgu denemesi
+                for investing_symbol in investing_deneme_sembolleri:
+                    if country:
+                        try:
+                            # İlk olarak ülke ile direkt sorgulama yap
+                            historical_data = investpy.indices.get_index_historical_data(
+                                index=investing_symbol,
+                                country=country,
+                                from_date=from_date,
+                                to_date=to_date
+                            )
+                            
+                            if not historical_data.empty:
+                                # DataFrame'i düzenle
+                                historical_data = historical_data.rename(columns={
+                                    'Open': 'open',
+                                    'High': 'high',
+                                    'Low': 'low',
+                                    'Close': 'close',
+                                    'Volume': 'volume'
+                                })
+                                
+                                # Verilerin geçerliliğini kontrol et
+                                required_cols = ['open', 'high', 'low', 'close']
+                                if all(col in historical_data.columns for col in required_cols):
+                                    if not historical_data[required_cols].isnull().any().any():
+                                        invest_success = True
+                                        invest_used_symbol = investing_symbol
+                                        
+                                        # Veritabanına kaydet
+                                        result = self.save_candles(symbol, historical_data, ulke, conn, cursor)
+                                        
+                                        # Başarılı ise True döndür
+                                        if result:
+                                            self.log(f"[investing] {symbol} için {investing_symbol} formatında veri bulundu ({len(historical_data)} kayıt)")
+                                            # Veri bulundu ve kaydedildi
+                                            return True
+                        except Exception:
+                            continue
+                
+                # Sembol adı arama ile dene
+                if not invest_success:
+                    try:
+                        for search_term in investing_deneme_sembolleri:
+                            try:
+                                # Endeks araması yap
+                                search_results = investpy.search_indices(
+                                    by='name',
+                                    value=search_term
+                                )
+                                
+                                if not search_results.empty:
+                                    # İlk bulunan endeksi kullan
+                                    found_index = search_results.iloc[0]
+                                    found_country = found_index['country']
+                                    found_name = found_index['name']
+                                    
+                                    historical_data = investpy.indices.get_index_historical_data(
+                                        index=found_name,
+                                        country=found_country,
+                                        from_date=from_date,
+                                        to_date=to_date
+                                    )
+                                    
+                                    if not historical_data.empty:
+                                        # DataFrame'i düzenle
+                                        historical_data = historical_data.rename(columns={
+                                            'Open': 'open',
+                                            'High': 'high',
+                                            'Low': 'low',
+                                            'Close': 'close',
+                                            'Volume': 'volume'
+                                        })
+                                        
+                                        # Verilerin geçerliliğini kontrol et
+                                        required_cols = ['open', 'high', 'low', 'close']
+                                        if all(col in historical_data.columns for col in required_cols):
+                                            if not historical_data[required_cols].isnull().any().any():
+                                                invest_success = True
+                                                invest_used_symbol = found_name
+                                                
+                                                # Veritabanına kaydet
+                                                result = self.save_candles(symbol, historical_data, ulke, conn, cursor)
+                                                
+                                                # Başarılı ise True döndür
+                                                if result:
+                                                    self.log(f"[investing] {symbol} için {found_name} formatında veri bulundu ({len(historical_data)} kayıt)")
+                                                    # Veri bulundu ve kaydedildi
+                                                    return True
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+                
+                # Investing.com başarısız log
+                format_str = ', '.join(investing_deneme_sembolleri)
+                if not invest_success:
+                    self.log(f"[investing] {symbol} için {format_str} formatlarında denedim veri bulamadım")
+                
+            except Exception:
+                self.log(f"[investing] {symbol} için {investing_symbol} formatında denedim veri bulamadım")
+            
+            # Her iki API de başarısız oldu
+            # Veri bulunamadı, veri_var = 0 olarak güncelle ve sadece bir kez log yap
+            try:
+                self.update_data_status(symbol, False, conn, cursor)
+            except Exception:
+                # Hata olursa ekstra log yapmaya gerek yok, zaten update_data_status içinde log var
+                pass
+            
+            return False
+            
         except Exception as e:
-            self.log(f"{symbol} için veri toplama hatası: {str(e)}")
+            self.log(f"❌ {symbol} için veri toplama hatası: {str(e)}")
             return False
             
     def save_candles(self, symbol, df, ulke, conn=None, cursor=None):
@@ -295,11 +577,60 @@ class IndexCollector:
             working_conn = conn if conn and not getattr(conn, 'closed', False) else own_conn
             working_cursor = cursor if cursor and not getattr(cursor, 'closed', False) else own_cursor
             
-            # Borsa bilgisini al
-            yf_symbol = symbol.split('/')[0]
-            index = yf.Ticker(yf_symbol)
-            info = index.info
-            exchange = info.get("exchange", "INDEX").upper() if info else "INDEX"
+            # Borsa bilgisini al - birkaç yaygın sembolü dene
+            exchange = "INDEX"  # Varsayılan değer
+            
+            try:
+                # Uyarıları bastır
+                import warnings
+                import sys
+                import io
+                
+                warnings.filterwarnings('ignore')
+                old_stdout = sys.stdout
+                old_stderr = sys.stderr
+                sys.stdout = io.StringIO()
+                sys.stderr = io.StringIO()
+                
+                try:
+                    # Farklı sembol formatlarını deneyelim
+                    ticker_deneme_sembolleri = []
+                    base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
+                    
+                    # 1. Temel sembol
+                    ticker_deneme_sembolleri.append(base_symbol)
+                    
+                    # 2. Yfinance sembolü
+                    yf_symbol = self.get_yfinance_symbol(symbol, ulke)
+                    if yf_symbol not in ticker_deneme_sembolleri:
+                        ticker_deneme_sembolleri.append(yf_symbol)
+                    
+                    # 3. Özel semboller
+                    if base_symbol == 'SPX':
+                        ticker_deneme_sembolleri.append('^GSPC')
+                    elif base_symbol == 'DJI':
+                        ticker_deneme_sembolleri.append('^DJI')
+                    elif base_symbol == 'IXIC':
+                        ticker_deneme_sembolleri.append('^IXIC')
+                    
+                    for deneme_symbol in ticker_deneme_sembolleri:
+                        try:
+                            # yfinance'den borsa bilgisini sorgula
+                            ticker = yf.Ticker(deneme_symbol)
+                            info = ticker.info
+                            
+                            if info and 'exchange' in info:
+                                exchange = info['exchange'].upper()
+                                self.log(f"{symbol} için borsa bilgisi bulundu: {exchange} (yfinance: {deneme_symbol})")
+                                break
+                        except:
+                            continue
+                finally:
+                    # stdout ve stderr'i eski haline getir
+                    sys.stdout = old_stdout
+                    sys.stderr = old_stderr
+            except Exception as e:
+                self.log(f"{symbol} için borsa bilgisi alınamadı: {str(e)}")
             
             # Döviz kuru için bir kere sorgula
             currency_map = {

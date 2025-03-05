@@ -39,10 +39,10 @@ def collect_data(args):
             collectors.append(PariteBinanceFuturesCollector())
         if args.source in ['all', 'binance_spot']:
             collectors.append(PariteBinanceSpotCollector())
-        if args.source in ['all', 'index']:
-            collectors.append(PariteIndexCollector())                
-        if args.source in ['all', 'forex']:
-            collectors.append(PariteForexCollector())
+        #if args.source in ['all', 'index']:
+        #    collectors.append(PariteIndexCollector())                
+        #if args.source in ['all', 'forex']:
+        #    collectors.append(PariteForexCollector())
     #    if args.source in ['all', 'stock']:
     #        collectors.append(PariteStockCollector())
 
@@ -57,8 +57,8 @@ def collect_data(args):
             collectors.append(CandleBinanceSpotCollector())
         if args.source in ['all', 'index']:
             collectors.append(CandleIndexCollector())
-        if args.source in ['all', 'forex']:
-            collectors.append(CandleForexCollector())
+        #if args.source in ['all', 'forex']:
+        #    collectors.append(CandleForexCollector())
 #        if args.source in ['all', 'stock']:
 #            collectors.append(CandleStockCollector())
             
