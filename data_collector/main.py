@@ -39,8 +39,8 @@ def collect_data(args):
             collectors.append(PariteBinanceFuturesCollector())
         if args.source in ['all', 'binance_spot']:
             collectors.append(PariteBinanceSpotCollector())
-        #if args.source in ['all', 'index']:
-        #    collectors.append(PariteIndexCollector())                
+        if args.source in ['all', 'index']:
+            collectors.append(PariteIndexCollector())                
         #if args.source in ['all', 'forex']:
         #    collectors.append(PariteForexCollector())
     #    if args.source in ['all', 'stock']:

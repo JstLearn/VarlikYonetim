@@ -2,458 +2,858 @@
 Endeks veri toplama işlemleri
 """
 
+import sys
+import os
+# Projenin ana dizinini Python yoluna ekle
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from datetime import datetime, timezone, timedelta, date
 import pandas as pd
 import yfinance as yf
-import investpy
 from utils.database import Database
 from utils.config import COLLECTION_CONFIG
+import time
+import requests
 
 
 class IndexCollector:
     def __init__(self):
+        """Sınıfı başlatır"""
         self.db = Database()
-        self.baslangic_tarihi = datetime.strptime(COLLECTION_CONFIG['start_date'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+        self.baslangic_tarihi = datetime(2000, 1, 1)
+        
+        # Rate Limiting için bekleme süresi ve yeniden deneme sayısı
+        self.retry_count = 3  # En fazla 3 kez yeniden dene
+        self.retry_delay = 5  # Her denemede 5 saniye bekle
+        self.rate_limit_cooldown = 60  # Rate limit hatası durumunda 60 saniye bekle
+        
+        # Son istek zamanı - rate limiting için
+        self.last_request_time = 0
+        self.request_delay = 1.0  # Saniye cinsinden istekler arası bekleme süresi
         
     def log(self, message):
         """Zaman damgalı log mesajı yazdırır"""
         timestamp = datetime.now().strftime('%H:%M:%S')
         print(f"[{timestamp}] {message}")
         
-    def get_yfinance_symbol(self, symbol, ulke=None):
-        """Veritabanı sembolünü yfinance'in beklediği formata dönüştürür"""
-        # Eğer sembol bir / içeriyorsa, / öncesini al
-        base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
-        
-        # Temel format dönüşümleri - yfinance'in genel beklentileri
-        if base_symbol.startswith('.'):
-            # Nokta ile başlayan sembolleri ^ ile değiştir
-            return f"^{base_symbol[1:]}"
-        elif ulke == 'Turkey' and not base_symbol.endswith('.IS'):
-            # Türkiye endeksleri için .IS eki ekle
-            return f"{base_symbol}.IS"
-        elif ulke == 'UK' and not base_symbol.endswith('.L'):
-            # İngiltere endeksleri için .L eki ekle
-            return f"{base_symbol}.L"
-        
-        # Diğer durumlarda sembolü olduğu gibi kullan
-        return base_symbol
-        
-    def get_investing_symbol(self, symbol, ulke=None):
-        """Veritabanı sembolünü investing.com'un beklediği formata dönüştürür"""
-        # Eğer sembol bir / içeriyorsa, / öncesini al
-        base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
-        
-        # Basit format dönüşümleri
-        # Nokta ile başlayan sembolleri düzelt
-        if base_symbol.startswith('.'):
-            return base_symbol[1:]
+    def test_index_symbol(self, symbol):
+        """Verilen endeks sembolünü YFinance ile test eder"""
+        try:
+            # Uyarıları gizle
+            import warnings
+            import yfinance as yf
+            warnings.filterwarnings('ignore')
             
-        # Ülke bazlı ek kaldırmaları
-        if ulke == 'Turkey' and base_symbol.endswith('.IS'):
-            return base_symbol[:-3] # .IS ekini kaldır
+            # Rate Limiting için bekle
+            self._wait_for_rate_limit()
             
-        if ulke == 'UK' and base_symbol.endswith('.L'):
-            return base_symbol[:-2] # .L ekini kaldır
+            # Ticker nesnesini oluştur
+            ticker = None
+            retry_count = 0
             
-        return base_symbol
+            while retry_count < self.retry_count:
+                try:
+                    ticker = yf.Ticker(symbol)
+                    info = ticker.info
+                    break
+                except requests.exceptions.HTTPError as e:
+                    # 404 hatalarını sessizce geç
+                    if "404 Client Error" in str(e):
+                        return False
+                    elif "Too Many Requests" in str(e):
+                        retry_count += 1
+                        self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                        time.sleep(self.rate_limit_cooldown)  # Rate limit hatası durumunda daha uzun bekle
+                    else:
+                        self.log(f"❌ {symbol} için hata: {str(e)}")
+                        return False
+                except Exception as e:
+                    if "Too Many Requests" in str(e):
+                        retry_count += 1
+                        self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                        time.sleep(self.rate_limit_cooldown)  # Rate limit hatası durumunda daha uzun bekle
+                    else:
+                        self.log(f"❌ {symbol} için hata: {str(e)}")
+                        return False
+                        
+            if retry_count >= self.retry_count:
+                self.log(f"❌ {symbol} için maksimum yeniden deneme sayısına ulaşıldı.")
+                return False
+            
+            # Endeks bilgilerini kontrol et
+            if info and isinstance(info, dict):
+                if 'shortName' in info or 'longName' in info:
+                    name = info.get('shortName', info.get('longName', 'Unknown'))
+                    
+                    # Son 5 günlük veriyi çekmeyi dene
+                    end_date = datetime.now()
+                    start_date = end_date - timedelta(days=5)
+                    
+                    # Rate Limiting için bekle
+                    self._wait_for_rate_limit()
+                    
+                    retry_count = 0
+                    while retry_count < self.retry_count:
+                        try:
+                            hist = ticker.history(start=start_date, end=end_date)
+                            break
+                        except requests.exceptions.HTTPError as e:
+                            # 404 hatalarını sessizce geç
+                            if "404 Client Error" in str(e):
+                                return False
+                            elif "Too Many Requests" in str(e):
+                                retry_count += 1
+                                self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                time.sleep(self.rate_limit_cooldown)
+                            else:
+                                self.log(f"❌ {symbol} için hata: {str(e)}")
+                                return False
+                        except Exception as e:
+                            if "Too Many Requests" in str(e):
+                                retry_count += 1
+                                self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                time.sleep(self.rate_limit_cooldown)
+                            else:
+                                self.log(f"❌ {symbol} için hata: {str(e)}")
+                                return False
+                    
+                    if retry_count >= self.retry_count:
+                        self.log(f"❌ {symbol} için maksimum yeniden deneme sayısına ulaşıldı.")
+                        return False
+                    
+                    if not hist.empty and 'Close' in hist.columns:
+                        exchange = info.get('exchange', 'Unknown')
+                        currency = info.get('currency', 'Unknown')
+                        lastPrice = info.get('regularMarketPrice', info.get('previousClose', 'Unknown'))
+                        
+                        self.log(f"✅ {symbol} - {name} geçerli bir endeks sembolü")
+                        self.log(f"   Borsa: {exchange}, Para Birimi: {currency}, Son Fiyat: {lastPrice}")
+                        self.log(f"   Tarih Aralığı: {hist.index[0]} - {hist.index[-1]}")
+                        return True
+            
+            return False
+        except Exception as e:
+            return False
         
+    def get_country_code(self, country_name):
+        """Ülke adına göre Yahoo Finance için ülke kodunu döndürür"""
+        country_codes = {
+            # Kuzey Amerika
+            'USA': '',  # ABD endeksleri için genellikle uzantı kullanılmaz
+            'United States': '',
+            'US': '',
+            'Canada': 'TO',  # Toronto
+            'Mexico': 'MX',
+            
+            # Güney Amerika
+            'Brazil': 'SA',  # Sao Paulo
+            'Argentina': 'BA',  # Buenos Aires
+            'Chile': 'SN',  # Santiago
+            'Colombia': 'CL',  # Colombia
+            'Peru': 'LM',  # Lima
+            
+            # Avrupa
+            'UK': 'L',  # Londra
+            'United Kingdom': 'L',
+            'Germany': 'DE',  # Frankfurt
+            'France': 'PA',  # Paris
+            'Italy': 'MI',  # Milan
+            'Spain': 'MC',  # Madrid
+            'Portugal': 'LS',  # Lisbon
+            'Switzerland': 'SW',  # Switzerland
+            'Netherlands': 'AS',  # Amsterdam
+            'Belgium': 'BR',  # Brussels
+            'Austria': 'VI',  # Vienna
+            'Greece': 'AT',  # Athens
+            'Sweden': 'ST',  # Stockholm
+            'Norway': 'OL',  # Oslo
+            'Denmark': 'CO',  # Copenhagen
+            'Finland': 'HE',  # Helsinki
+            'Ireland': 'IR',  # Ireland
+            'Poland': 'WA',  # Warsaw
+            'Turkey': 'IS',  # Istanbul
+            'Türkiye': 'IS',  # Istanbul
+            'Russia': 'ME',  # Moscow
+            
+            # Asya-Pasifik
+            'Japan': 'T',  # Tokyo
+            'China': 'SS',  # Shanghai
+            'Hong Kong': 'HK',
+            'Taiwan': 'TW',  # Taiwan
+            'South Korea': 'KS',  # Korea
+            'Singapore': 'SI',
+            'Malaysia': 'KL',  # Kuala Lumpur
+            'Indonesia': 'JK',  # Jakarta
+            'Thailand': 'BK',  # Bangkok
+            'Philippines': 'PS',  # Philippines
+            'Vietnam': 'VN',
+            'India': 'NS',  # NSE (National Stock Exchange)
+            'Pakistan': 'KA',  # Karachi
+            'Australia': 'AX',  # Australia
+            'New Zealand': 'NZ',
+            
+            # Ortadoğu ve Afrika
+            'Israel': 'TA',  # Tel Aviv
+            'Saudi Arabia': 'SR',  # Saudi
+            'UAE': 'AD',  # Abu Dhabi
+            'Qatar': 'QA',  # Qatar
+            'Kuwait': 'KW',
+            'Egypt': 'CA',  # Cairo
+            'South Africa': 'JO',  # Johannesburg
+            'Nigeria': 'LG',  # Lagos
+            'Kenya': 'NR'  # Nairobi
+        }
+        
+        # Ülke adı büyük küçük harf duyarlı olmadan eşleşme yap
+        for country, code in country_codes.items():
+            if country.lower() == country_name.lower():
+                return code
+                
+        # Eşleşme bulunamazsa None döndür
+        return None
+        
+    def update_symbol_in_db(self, parite, symbol):
+        """Veritabanında sembol bilgisini günceller"""
+        try:
+            conn = self.db.connect()
+            cursor = conn.cursor()
+            
+            # Endeks sembolleri tablosunu oluştur (yoksa)
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'endeks_semboller')
+                BEGIN
+                    CREATE TABLE [VARLIK_YONETIM].[dbo].[endeks_semboller] (
+                        parite VARCHAR(50) NOT NULL,
+                        yf_symbol VARCHAR(50) NOT NULL,
+                        son_kontrol DATETIME DEFAULT GETDATE(),
+                        PRIMARY KEY (parite)
+                    )
+                END
+            """)
+            
+            # Sembol bilgisini güncelle
+            cursor.execute("""
+                IF EXISTS (SELECT 1 FROM [VARLIK_YONETIM].[dbo].[endeks_semboller] WHERE parite = ?)
+                BEGIN
+                    UPDATE [VARLIK_YONETIM].[dbo].[endeks_semboller]
+                    SET yf_symbol = ?,
+                        son_kontrol = GETDATE()
+                    WHERE parite = ?
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO [VARLIK_YONETIM].[dbo].[endeks_semboller]
+                        (parite, yf_symbol)
+                    VALUES
+                        (?, ?)
+                END
+            """, (parite, symbol, parite, parite, symbol))
+            
+            conn.commit()
+            self.log(f"✅ {parite} için {symbol} sembolü kaydedildi")
+            return True
+        except Exception as e:
+            self.log(f"❌ {parite} sembol güncellemesi başarısız: {str(e)}")
+            if 'conn' in locals() and conn:
+                conn.rollback()
+            return False
+        finally:
+            if 'conn' in locals() and conn:
+                conn.close()
+        
+    def get_common_indices_symbols(self):
+        """Yaygın endekslerin sembollerini döndürür"""
+        return {
+            # ABD Endeksleri
+            'SPX': ['^GSPC', 'SPX', 'SP500', 'S&P500', '.SPX', '.INX'],
+            'DJI': ['^DJI', 'DJI', 'DJIA', '.DJI'],
+            'IXIC': ['^IXIC', 'COMP', 'NASDAQ', '.IXIC'],
+            'RUT': ['^RUT', 'RUT', 'RUSSELL', '.RUT'],
+            'NYA': ['^NYA', 'NYA', 'NY-COMPOSITE'],
+            'VIX': ['^VIX', 'VIX', 'VOLATILITY'],
+            'OEX': ['^OEX', 'OEX', 'S&P100'],
+            'MID': ['^MID', 'MDY', 'S&P400'],
+            'GSPTSE': ['^GSPTSE', 'GSPTSE', 'TSX'],
+            'NDX': ['^NDX', 'NDX', 'NASDAQ100'],
+            'DWCF': ['^DWCF', 'RUSSELL-3000'],
+            'DJT': ['^DJT', 'DJT', 'DOW-TRANSPORT'],
+            'DJU': ['^DJU', 'DJU', 'DOW-UTILITIES'],
+            'RUI': ['^RUI', 'RUI', 'RUSSELL-1000'],
+            'SOX': ['^SOX', 'SOX', 'SEMICONDUCTOR'],
+            
+            # Türkiye Endeksleri
+            'BIST100': ['^XU100', 'XU100.IS', 'BIST100.IS', '.XU100'],
+            'BIST30': ['^XU030', 'XU030.IS', 'BIST30.IS', '.XU030'],
+            'BIST50': ['^XU050', 'XU050.IS', 'BIST50.IS'],
+            'BISTBANK': ['^XBANK', 'XBANK.IS'],
+            'BISTMALI': ['^XUMAL', 'XUMAL.IS'],
+            'BISTSANAYI': ['^XUSIN', 'XUSIN.IS'],
+            'BISTULAŞIM': ['^XULAS', 'XULAS.IS'],
+            'BISTHIZMET': ['^XUHIZ', 'XUHIZ.IS'],
+            'BISTTEKNOLOJI': ['^XUTEK', 'XUTEK.IS'],
+            'BISTTICARET': ['^XTCRT', 'XTCRT.IS'],
+            'BISTMETAL': ['^XMESY', 'XMESY.IS'],
+            'BISTGIDA': ['^XGIDA', 'XGIDA.IS'],
+            'BISTENERJI': ['^XELKT', 'XELKT.IS'],
+            'BISTKIMYA': ['^XKMYA', 'XKMYA.IS'],
+            'BISTTEKSTIL': ['^XTEKS', 'XTEKS.IS'],
+            'XUTUM': ['^XUTUM', 'XUTUM.IS'], # BIST TÜM
+            
+            # İngiltere Endeksleri
+            'FTSE100': ['^FTSE', 'UKX', 'FTSE.L', '.FTSE'],
+            'FTSE': ['^FTSE', 'UKX', 'FTSE.L', '.FTSE'],
+            'FTSE250': ['^FTMC', 'MCX', 'FTMC.L'],
+            'FTSEAIM': ['^FTAI', 'AXX', 'FTAI.L'],
+            'FTSE350': ['^FTLC', 'NMX', 'FTLC.L'],
+            'FTSEALLSHARE': ['^FTAS', 'ASX', 'FTAS.L'],
+            
+            # Almanya Endeksleri
+            'DAX': ['^GDAXI', 'DAX', 'DAX.DE', '.GDAXI'],
+            'MDAX': ['^MDAXI', 'MDAX.DE', 'MDAXI.DE'],
+            'SDAX': ['^SDAXI', 'SDAX.DE', 'SDAXI.DE'],
+            'TECDAX': ['^TECDAX', 'TECDAX.DE'],
+            'HDAX': ['^HDAX', 'HDAX.DE'],
+            'CDAX': ['^CDAX', 'CDAX.DE'],
+            
+            # Fransa Endeksleri
+            'CAC40': ['^FCHI', 'CAC', 'CAC.PA', '.FCHI'],
+            'CAC': ['^FCHI', 'CAC', 'CAC.PA', '.FCHI'],
+            'SBF120': ['^SBF120', 'SBF120.PA'],
+            'CAC NEXT20': ['^CN20', 'CN20.PA'],
+            'CAC MID60': ['^CACMI', 'CACMI.PA'],
+            'CAC SMALL': ['^CACS', 'CACS.PA'],
+            
+            # İtalya Endeksleri
+            'FTSEMIB': ['^FTSEMIB', 'FTSEMIB.MI', 'FTMIB.MI'],
+            
+            # İspanya Endeksleri
+            'IBEX35': ['^IBEX', 'IBEX', 'IBEX.MC'],
+            
+            # İsviçre Endeksleri
+            'SMI': ['^SSMI', 'SMI', 'SMI.SW'],
+            
+            # Hollanda Endeksleri
+            'AEX': ['^AEX', 'AEX', 'AEX.AS'],
+            
+            # Belçika Endeksleri
+            'BEL20': ['^BFX', 'BFX', 'BFX.BR'],
+            
+            # İsveç Endeksleri
+            'OMXS30': ['^OMX', 'OMXS30', 'OMXS30.ST'],
+            
+            # Japonya Endeksleri
+            'N225': ['^N225', 'NKY', 'N225.T', '.N225'],
+            'TOPIX': ['^TOPX', 'TPX', 'TOPX.T'],
+            'JPX400': ['^JPXN', 'JPX400.T'],
+            'NIKKEI500': ['^N500', 'N500.T'],
+            
+            # Hong Kong Endeksleri
+            'HSI': ['^HSI', 'HSI', 'HSI.HK', '.HSI'],
+            'HSCEI': ['^HSCE', 'HSCE', 'HSCE.HK'],
+            
+            # Çin Endeksleri
+            'SSEC': ['^SSEC', 'SSEC', 'SHCOMP', '000001.SS', '.SSEC'],
+            'SZSC': ['^SZSC', 'SZSC', 'SZCOMP', '399001.SZ', '.SZSC'],
+            'CSI300': ['^CSI300', 'SHSZ300.CI', 'CSI300.SS', '000300.SS', '.CSI300'],
+            'CSI500': ['^CSI500', 'CSI500.SS', '000905.SS'],
+            'CSI1000': ['^CSI1000', 'CSI1000.SS', '000852.SS'],
+            'FTXIN9': ['^FTXIN9', 'FTXIN9.SS'], # FTSE China A50
+            'SHSZ300': ['^CSI300', 'SHSZ300.CI', 'CSI300.SS', '000300.SS'],
+            'HSCE': ['^HSCE', 'HSCE.HK', '.HSCE'],
+            'SHCOMP': ['^SSEC', 'SSEC', 'SHCOMP', '000001.SS', '.SHCOMP'],
+            
+            # Tayvan Endeksleri
+            'TWII': ['^TWII', 'TWII.TW', '.TWII'],
+            'TAIEX': ['^TWII', 'TWII.TW', '.TWII'],
+            
+            # Güney Kore Endeksleri
+            'KOSPI': ['^KS11', 'KOSPI', 'KS11.KS', '.KS11', '.KOSPI'],
+            'KS200': ['^KS200', 'KS200', 'KS200.KS', '.KS200'],
+            'KOSDAQ': ['^KQ11', 'KOSDAQ', 'KQ11.KS'],
+            
+            # Hindistan Endeksleri
+            'SENSEX': ['^BSESN', 'SENSEX.BO', 'SENSEX', '.BSESN'],
+            'NIFTY': ['^NSEI', 'NIFTY.NS', 'NIFTY', '.NSEI'],
+            'NIFTYNEXT50': ['^NSMIDCP', 'NIFMID50.NS', '.NSMIDCP'],
+            'BANKNIFTY': ['^NSEBANK', 'BANKNIFTY.NS'],
+            'NIFTY500': ['^CRSLDX', 'NIFTY500.NS'],
+            'NIFTYMIDCAP': ['^NIFMDCP', 'NIFTYMID.NS'],
+            'NIFTYSMALLCAP': ['^NIFSMCP', 'NIFTYSML.NS'],
+            
+            # Avustralya Endeksleri 
+            'AXJO': ['^AXJO', 'AS51', 'XJO.AX', '.AXJO'],
+            'ASX200': ['^AXJO', 'AS51', 'XJO.AX', '.AXJO'],
+            'AORD': ['^AORD', 'AORD', 'XAO.AX', '.AORD'],
+            'ASX300': ['^AXKO', 'XKO.AX'],
+            'ASX20': ['^ATLI', 'XTL.AX'],
+            'ASX50': ['^AFLI', 'XFL.AX'],
+            'ASX100': ['^ATOI', 'XTO.AX'],
+            
+            # Yeni Zelanda Endeksleri
+            'NZ50': ['^NZ50', 'NZ50.NZ', '.NZ50'],
+            
+            # Kanada Endeksleri 
+            'TSX': ['^GSPTSE', 'SPTSX', 'GSPTSE.TO', '.GSPTSE'],
+            'SPTSX60': ['^TX60', 'TX60.TO'],
+            
+            # Brezilya Endeksleri
+            'BVSP': ['^BVSP', 'IBOV', 'BVSP.SA', '.BVSP'],
+            'IBOVESPA': ['^BVSP', 'IBOV', 'BVSP.SA', '.BVSP'],
+            
+            # Meksika Endeksleri
+            'MXX': ['^MXX', 'MEXBOL', 'MXX.MX', '.MXX'],
+            'IPC': ['^MXX', 'MEXBOL', 'MXX.MX', '.MXX'],
+            
+            # Arjantin Endeksleri
+            'MERV': ['^MERV', 'MERV.BA', '.MERV'],
+            
+            # Şili Endeksleri
+            'IPSA': ['^IPSA', 'IPSA.SN', '.IPSA'],
+            
+            # Singapur Endeksleri 
+            'STI': ['^STI', 'STI.SI', '.STI'],
+            
+            # Malezya Endeksleri
+            'KLSE': ['^KLSE', 'FBMKLCI.KL', '.KLSE'],
+            
+            # Endonezya Endeksleri
+            'JKSE': ['^JKSE', 'JKSE.JK', '.JKSE'],
+            
+            # Tayland Endeksleri
+            'SET': ['^SET.BK', 'SET.BK', '.SET'],
+            
+            # Vietnam Endeksleri
+            'VNI': ['^VNINDEX', 'VNINDEX.VN', '.VNI'],
+            'HNX': ['^HASTC', 'HASTC.VN', 'HNX.VN'],
+            
+            # Filipinler Endeksleri
+            'PSI': ['^PSI', 'PSEI.PS', '.PSI'],
+            
+            # Suudi Arabistan Endeksleri
+            'TASI': ['^TASI', 'TASI.SR', '.TASI'],
+            
+            # BAE Endeksleri
+            'ADI': ['^ADI', 'ADI.AD', '.ADI'],
+            'DFMGI': ['^DFMGI', 'DFMGI.DU', '.DFMGI'],
+            
+            # Katar Endeksleri
+            'QSI': ['^QSI', 'QSI.QA', '.QSI'],
+            
+            # Kuveyt Endeksleri
+            'KWSE': ['^KWSE', 'KWSE.KW', '.KWSE'],
+            
+            # Mısır Endeksleri
+            'EGX30': ['^EGX30', 'EGX30.CA', '.EGX30'],
+            
+            # Güney Afrika Endeksleri
+            'JTOPI': ['^JTOPI', 'JTOPI.JO', '.JTOPI'],
+            'TOP40': ['^JTOPI', 'JTOPI.JO', '.JTOPI'],
+            
+            # Nijerya Endeksleri
+            'NGSE': ['^NGSE', 'NGSE.LG', '.NGSE'],
+            
+            # İsrail Endeksleri
+            'TA35': ['^TA35', 'TA35.TA', '.TA35'],
+            'TA125': ['^TA125', 'TA125.TA', '.TA125'],
+            
+            # Rusya Endeksleri
+            'IMOEX': ['^IMOEX', 'IMOEX.ME'],
+            'RTSI': ['^RTSI', 'RTSI.ME'],
+            
+            # Polonya Endeksleri
+            'WIG20': ['^WIG20', 'WIG20.WA'],
+            'WIG30': ['^WIG30', 'WIG30.WA'],
+            
+            # Uluslararası Endeksler
+            'FTEU3': ['^STOXX', 'STOXX50E', '.STOXX'],
+            'STOXX50': ['^STOXX50E', 'STOXX50E', '.STOXX50E'],
+            'STOXX600': ['^STOXX600', 'STOXX600E', '.STOXX600'],
+            'EUROSTOXX50': ['^STOXX50E', 'SX5E', '.STOXX50E'],
+            'EUROSTOXX': ['^STOXX', 'SXXP', '.STOXX'],
+            'MSCI_WORLD': ['^MSCI', 'MSCI.WORLD'],
+            'MSCI_EMERGING': ['^MSCI.EM', 'MSCI.EM'],
+            'MSCI_EUROPE': ['^MSCI.EU', 'MSCI.EU'],
+            'MSCI_ACWI': ['^MSCI.ACWI', 'MSCI.ACWI'],
+            'MSCI_EAFE': ['^MSCI.EAFE', 'MSCI.EAFE'],
+            'MSCI_ASIA': ['^MSCI.ASIA', 'MSCI.ASIA'],
+            'MSCI_LATAM': ['^MSCI.LATAM', 'MSCI.LATAM'],
+            'FTSE_GLOBAL_ALL_CAP': ['^FTGAC', 'FTGAC']
+        }
+        
+    def _wait_for_rate_limit(self):
+        """Rate limiting için bekler"""
+        current_time = time.time()
+        elapsed = current_time - self.last_request_time
+        
+        if elapsed < self.request_delay:
+            sleep_time = self.request_delay - elapsed
+            time.sleep(sleep_time)
+            
+        self.last_request_time = time.time()
+        
+    def collect_data(self, parite, symbol, para_birimi, ulke=None):
+        """Endeks verisini toplar ve veritabanına kaydeder"""
+        try:
+            self.log(f"ℹ️ {parite} ({symbol}) endeks verisi toplanıyor...")
+            
+            # Tarihleri belirle
+            end_date = datetime.now()
+            start_date = self.baslangic_tarihi
+            
+            # Veritabanı bağlantısı
+            conn = self.db.connect()
+            cursor = conn.cursor()
+            
+            # Son veri tarihini kontrol et
+            cursor.execute("""
+                SELECT TOP 1 tarih 
+                FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH(NOLOCK)
+                WHERE parite = ? AND [interval] = '1d'
+                ORDER BY tarih DESC
+            """, (parite,))
+            
+            son_veri = cursor.fetchone()
+            
+            if son_veri:
+                son_tarih = son_veri[0]
+                bugun = datetime.now().date()
+                
+                # Eğer son tarih bugünse, güncelleme gerekmiyor
+                if (bugun - son_tarih.date()).days == 0:
+                    self.log(f"✅ {parite} verileri zaten güncel: {son_tarih}")
+                    return 0
+                    
+                # Son tarihten itibaren veri al
+                start_date = son_tarih + timedelta(days=1)
+            
+            # yfinance ile veri çekme
+            self.log(f"ℹ️ {parite} verileri çekiliyor... (Tarih: {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')})")
+            
+            try:
+                # Rate limiting için bekle
+                self._wait_for_rate_limit()
+                
+                # Veriyi çek - rate limiting için yeniden deneme mekanizması
+                retry_count = 0
+                data = None
+                
+                while retry_count < self.retry_count:
+                    try:
+                        # Veriyi çek
+                        data = yf.download(
+                            symbol,
+                            start=start_date.strftime('%Y-%m-%d'),
+                            end=end_date.strftime('%Y-%m-%d'),
+                            interval="1d",
+                            progress=False,
+                            show_errors=False
+                        )
+                        break
+                    except requests.exceptions.HTTPError as e:
+                        # 404 hatalarını sessizce geç
+                        if "404 Client Error" in str(e):
+                            break
+                        elif "Too Many Requests" in str(e):
+                            retry_count += 1
+                            self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                            time.sleep(self.rate_limit_cooldown)
+                        else:
+                            self.log(f"❌ {symbol} için hata: {str(e)}")
+                            retry_count = self.retry_count  # Döngüden çıkmak için
+                    except Exception as e:
+                        if "Too Many Requests" in str(e):
+                            retry_count += 1
+                            self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                            time.sleep(self.rate_limit_cooldown)
+                        else:
+                            self.log(f"❌ {symbol} için hata: {str(e)}")
+                            retry_count = self.retry_count  # Döngüden çıkmak için
+                
+                if retry_count >= self.retry_count:
+                    self.log(f"❌ {parite} için maksimum yeniden deneme sayısına ulaşıldı.")
+                    return 0
+                
+                if data is None or data.empty:
+                    self.log(f"⚠️ {parite} için veri bulunamadı")
+                    return 0
+                    
+                # Veriyi hazırla
+                data.reset_index(inplace=True)
+                
+                # Tarih sütununu kontrol et
+                if 'Date' not in data.columns:
+                    self.log(f"❌ {parite} - Veri formatında hata (tarih sütunu bulunamadı)")
+                    return 0
+                
+                self.log(f"✅ {parite} için {len(data)} adet veri çekildi")
+                
+                # Verileri veritabanına kaydet
+                kayit_sayisi = 0
+                
+                # Basit bir transaction başlat
+                cursor.execute("BEGIN TRANSACTION")
+                
+                # Veri var bilgisini güncelle
+                cursor.execute("""
+                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                    SET veri_var = 1, 
+                        kayit_tarihi = GETDATE()
+                    WHERE parite = ?
+                """, (parite,))
+                
+                # Yoksa sembolü kaydet
+                self.update_symbol_in_db(parite, symbol)
+                
+                # Her bir kayıt için
+                for _, row in data.iterrows():
+                    tarih = row['Date']
+                    acilis = row['Open']
+                    yuksek = row['High']
+                    dusuk = row['Low']
+                    kapanis = row['Close']
+                    hacim = row['Volume'] if 'Volume' in row else 0
+                    
+                    # Nan değerleri kontrol et
+                    if (pd.isna(acilis) or pd.isna(yuksek) or 
+                        pd.isna(dusuk) or pd.isna(kapanis)):
+                        continue
+                    
+                    # Tarih UTC formatına çevir
+                    if isinstance(tarih, str):
+                        tarih = datetime.strptime(tarih, '%Y-%m-%d')
+                    
+                    # Veriyi kaydet
+                    cursor.execute("""
+                        IF NOT EXISTS (
+                            SELECT 1 
+                            FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH(NOLOCK)
+                            WHERE parite = ? AND [interval] = '1d' AND tarih = ?
+                        )
+                        BEGIN
+                            INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar]
+                                (parite, [interval], tarih, acilis, yuksek, dusuk, kapanis, hacim, kaynak)
+                            VALUES
+                                (?, '1d', ?, ?, ?, ?, ?, ?, 'YAHOO')
+                        END
+                        ELSE
+                        BEGIN
+                            UPDATE [VARLIK_YONETIM].[dbo].[kurlar]
+                            SET acilis = ?,
+                                yuksek = ?,
+                                dusuk = ?,
+                                kapanis = ?,
+                                hacim = ?,
+                                kaynak = 'YAHOO'
+                            WHERE parite = ? AND [interval] = '1d' AND tarih = ?
+                        END
+                    """, (
+                        parite, tarih,
+                        parite, tarih, acilis, yuksek, dusuk, kapanis, hacim,
+                        acilis, yuksek, dusuk, kapanis, hacim,
+                        parite, tarih
+                    ))
+                    
+                    kayit_sayisi += 1
+                
+                # İşlemi tamamla
+                conn.commit()
+                self.log(f"✅ {parite} için {kayit_sayisi} yeni kayıt eklendi")
+                
+                return kayit_sayisi
+            except Exception as e:
+                self.log(f"❌ {parite} veri toplama hatası: {str(e)}")
+                return 0
+        except Exception as e:
+            self.log(f"❌ {parite} veri toplama hatası: {str(e)}")
+            return 0
+                
     def run(self):
-        """Çalışma metodu"""
-        self.log("="*50)
-        
+        """Endeks verilerini toplar ve veri tabanına kaydeder."""
         try:
             # Veritabanı bağlantısı
             conn = self.db.connect()
-            if not conn:
-                self.log("Veritabanına bağlanılamadı")
-                return False
-                
             cursor = conn.cursor()
-            if not cursor:
-                self.log("Cursor oluşturulamadı")
-                conn.close()
-                return False
-                
-            # Aktif çiftleri al - veri_var NULL veya 1 olanları getir
+            
+            # Tüm endeksleri al
             cursor.execute("""
-                SELECT parite, ulke, ISNULL(veri_var, 0) as veri_var, ISNULL(CONVERT(DATE, kayit_tarihi), '1900-01-01') as kayit_tarihi
+                SELECT parite, aktif, borsa, tip, ulke, aciklama 
                 FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH(NOLOCK)
-                WHERE aktif = 1 AND tip = 'INDEX' AND (veri_var = 1 OR veri_var IS NULL)
-            """)
-            
-            rows = cursor.fetchall()
-            if not rows:
-                self.log("İşlenecek parite bulunamadı")
-                cursor.close()
-                conn.close()
-                return False
-                
-            # İşlem yapılacak endeks sayısı
-            processed_count = 0
-            error_count = 0
-            updated_count = 0
-            skipped_count = 0
-            
-            # Toplam endeks sayısını log
-            self.log(f"Toplam {len(rows)} endeks işlenecek")
-            
-            # Şu anki UTC zamanı
-            now = datetime.now(timezone.utc)
-            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            yesterday = today - timedelta(days=1)
-            yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-            yesterday_end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
-            
-            # Her bir endeksi işle
-            for row in rows:
-                symbol, ulke, veri_var, kayit_tarihi = row
-                
-                try:
-                    # Veritabanındaki son kapanış tarihini kontrol et
-                    cursor.execute("""
-                        SELECT TOP 1 tarih
-                        FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH(NOLOCK)
-                        WHERE parite = ? AND [interval] = '1d'
-                        ORDER BY tarih DESC
-                    """, (symbol,))
-                    
-                    son_tarih_row = cursor.fetchone()
-                    son_tarih = None if son_tarih_row is None else son_tarih_row[0]
-                    
-                    if veri_var == 0 or son_tarih is None:
-                        # Hiç veri yoksa, başlangıç tarihinden dünün sonuna kadar veri topla
-                        result = self.collect_data(symbol, ulke, self.baslangic_tarihi, yesterday_end.strftime('%Y-%m-%d'), conn, cursor)
-                        
-                        if result:
-                            updated_count += 1
-                        else:
-                            error_count += 1
-                            
-                    else:
-                        # Son kayıt tarihini datetime'a çevir
-                        son_tarih_dt = son_tarih.replace(tzinfo=timezone.utc) if son_tarih.tzinfo is None else son_tarih
-                        
-                        # Son tarih dünden önceyse yeni veri topla
-                        if son_tarih_dt < yesterday_start:
-                            # Son tarihten sonraki günden dünün sonuna kadar veri topla
-                            yeni_baslangic = (son_tarih_dt + timedelta(days=1)).strftime('%Y-%m-%d')
-                            result = self.collect_data(symbol, ulke, yeni_baslangic, yesterday_end.strftime('%Y-%m-%d'), conn, cursor)
-                            
-                            if result:
-                                updated_count += 1
-                            else:
-                                error_count += 1
-                        else:
-                            # Veritabanı güncel, yeni veri çekmeye gerek yok
-                            self.log(f"{symbol} için veritabanı güncel (son veri tarihi: {son_tarih.strftime('%Y-%m-%d')}), yeni veri çekilmiyor")
-                            skipped_count += 1
-                    
-                    processed_count += 1
-                    
-                except Exception as e:
-                    error_count += 1
-                    self.log(f"Endeks işleme hatası ({symbol}): {str(e)}")
-                    
-            # İşlem sonucunu log
-            self.log(f"İşlem tamamlandı. Toplam: {len(rows)}, İşlenen: {processed_count}, Atlanılan: {skipped_count}, Güncellenen: {updated_count}, Hata: {error_count}")
-            
-            # Bağlantıyı kapat
-            cursor.close()
-            conn.close()
-            
-            return True
-            
-        except Exception as e:
-            self.log(f"Veritabanı hatası: {str(e)}")
-            return False
-        
-    def get_active_pairs(self, conn=None, cursor=None):
-        """Aktif endeks paritelerini getirir"""
-        close_conn = False
-        own_conn = None
-        own_cursor = None
-        
-        try:
-            # Bağlantı yönetimi
-            if conn is None or cursor is None or getattr(conn, 'closed', False):
-                close_conn = True
-                own_conn = self.db.connect()
-                if not own_conn:
-                    return []
-                own_cursor = own_conn.cursor()
-                
-            # Kullanılacak bağlantı ve cursor
-            working_conn = conn if conn and not getattr(conn, 'closed', False) else own_conn
-            working_cursor = cursor if cursor and not getattr(cursor, 'closed', False) else own_cursor
-            
-            # Sorguyu çalıştır
-            working_cursor.execute("""
-                SELECT parite, borsa, veriler_guncel, ulke 
-                FROM [VARLIK_YONETIM].[dbo].[pariteler] WITH (NOLOCK)
-                WHERE tip = 'INDEX' 
-                AND aktif = 1 
+                WHERE tip = 'INDEX' AND aktif = 1 
                 AND (veri_var = 1 OR veri_var IS NULL)
+                ORDER BY parite
             """)
             
-            pairs = []
-            for row in working_cursor.fetchall():
-                pairs.append({
-                    'symbol': row[0],
-                    'exchange': row[1],
-                    'ulke': row[3]
-                })
-                
-            return pairs
+            indices = cursor.fetchall()
+            total_indices = len(indices)
             
-        except Exception as e:
-            self.log(f"Hata: Endeks pariteleri alınamadı - {str(e)}")
-            return []
-        finally:
-            # Sadece kendimiz açtığımız bağlantıyı kapatırız
-            if close_conn:
+            self.log(f"Toplam {total_indices} endeks için işlem yapılacak.")
+            
+            # Sonuç istatistikleri
+            processed = 0  # İşlenen
+            updated = 0    # Güncellenen
+            skipped = 0    # Atlanan
+            errors = 0     # Hatalı
+            
+            # Veritabanı bağlantı durumunu kontrol eden fonksiyon
+            def check_and_reconnect():
+                nonlocal conn, cursor
                 try:
-                    if own_cursor and not getattr(own_cursor, 'closed', True):
-                        own_cursor.close()
-                    if own_conn and not getattr(own_conn, 'closed', True):
-                        own_conn.close()
-                except Exception as e:
-                    self.log(f"Bağlantı kapatma hatası: {str(e)}")
-            
-    def update_data_status(self, symbol, has_data, conn=None, cursor=None):
-        """Endeks için veri durumunu günceller"""
-        local_conn = False
-        try:
-            # Bağlantı yoksa yeni bir bağlantı oluştur
-            if conn is None or cursor is None:
-                conn = self.db.connect()
-                cursor = conn.cursor()
-                local_conn = True
-                
-            # Veri durumunu güncelle
-            # MSSQL için ? parametrelerini kullan
-            query = """
-                UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                SET veri_var = ?, kayit_tarihi = GETDATE()
-                WHERE parite = ?
-            """
-            cursor.execute(query, (1 if has_data else 0, symbol))
-            conn.commit()
-            
-            # Log
-            self.log(f"{symbol} için veri_var = {1 if has_data else 0} olarak güncellendi")
-            
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            self.log(f"Veri durumu güncellenirken hata: {str(e)}")
-        finally:
-            # Yerel bağlantıyı kapat
-            if local_conn and conn:
-                cursor.close()
-                conn.close()
-                    
-    def collect_data(self, symbol, ulke, start_date, end_date=None, conn=None, cursor=None):
-        """Endeks verilerini yfinance ve investing.com'dan toplar"""
-        try:
-            # Başlangıç tarihini datetime.date formatından datetime formatına dönüştür
-            if isinstance(start_date, str):
-                start_date = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-            elif isinstance(start_date, date) and not isinstance(start_date, datetime):
-                start_date = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-                
-            # Bitiş tarihini kontrol et
-            if end_date is None:
-                # UTC+0'a göre dünün sonunu al
-                now = datetime.now(timezone.utc)
-                yesterday = (now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1))
-                end_date = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
-            elif isinstance(end_date, str):
-                end_date = datetime.strptime(end_date, '%Y-%m-%d')
-                # Eğer saat bilgisi yoksa, günün sonunu al
-                if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
-                    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                end_date = end_date.replace(tzinfo=timezone.utc)
-                
-            # Tarihleri string formatına çevir
-            start_str = start_date.strftime('%Y-%m-%d')
-            end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')  # yfinance bitiş tarihini dahil etmiyor, +1 gün ekle
-            
-            df = None
-            
-            # 1. ADIM: yfinance'dan veri almayı dene
-            # Farklı yfinance sembol formatlarını deneyeceğiz
-            yfinance_deneme_sembolleri = []
-            
-            # 1. İlk temel formatta sembol ekle
-            base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
-            yfinance_deneme_sembolleri.append(base_symbol)
-            
-            # 2. Dönüştürülmüş sembolü ekle
-            yf_symbol = self.get_yfinance_symbol(symbol, ulke)
-            if yf_symbol != base_symbol and yf_symbol not in yfinance_deneme_sembolleri:
-                yfinance_deneme_sembolleri.append(yf_symbol)
-            
-            # 3. Genel bilinen dönüşümleri ekle
-            if base_symbol == 'SPX':
-                yfinance_deneme_sembolleri.append('^GSPC')
-            elif base_symbol == 'DJI':
-                yfinance_deneme_sembolleri.append('^DJI')
-            elif base_symbol == 'IXIC':
-                yfinance_deneme_sembolleri.append('^IXIC')
-            elif base_symbol == 'BIST100':
-                yfinance_deneme_sembolleri.append('^XU100')
-            elif base_symbol == 'BIST30':
-                yfinance_deneme_sembolleri.append('^XU030')
-            elif base_symbol == 'DAX':
-                yfinance_deneme_sembolleri.append('^GDAXI')
-            elif base_symbol == 'FTSE':
-                yfinance_deneme_sembolleri.append('^FTSE')
-            elif base_symbol == 'N225':
-                yfinance_deneme_sembolleri.append('^N225')
-            
-            # 4. Nokta ile başlayan sembolleri ^ ile değiştir
-            if base_symbol.startswith('.') and f"^{base_symbol[1:]}" not in yfinance_deneme_sembolleri:
-                yfinance_deneme_sembolleri.append(f"^{base_symbol[1:]}")
-            
-            # Yfinance sembollerini dene
-            yf_success = False
-            yf_used_symbol = None
-            
-            for deneme_symbol in yfinance_deneme_sembolleri:
-                try:
-                    # Tüm uyarıları bastır
-                    import warnings
-                    import sys
-                    import io
-                    
-                    # Özellikle yfinance'in auto_adjust uyarısını filtreleme
-                    warnings.filterwarnings('ignore', category=UserWarning)
-                    warnings.filterwarnings('ignore', message='.*auto_adjust.*')
-                    
-                    # stdout ve stderr'i geçici olarak yönlendir
-                    old_stdout = sys.stdout
-                    old_stderr = sys.stderr
-                    sys.stdout = io.StringIO()
-                    sys.stderr = io.StringIO()
-                    
-                    try:
-                        # yfinance'den veri çek
-                        df = yf.download(
-                            tickers=deneme_symbol,
-                            start=start_str,
-                            end=end_str,
-                            interval='1d',
-                            progress=False,
-                            auto_adjust=True,
-                            prepost=False,
-                            threads=False
-                        )
-                    finally:
-                        # stdout ve stderr'i eski haline getir
-                        sys.stdout = old_stdout
-                        sys.stderr = old_stderr
-                    
-                    # Verileri kontrol et
-                    if (not df.empty and 
-                        'Open' in df.columns and 
-                        'High' in df.columns and 
-                        'Low' in df.columns and 
-                        'Close' in df.columns):
-                        
-                        # DataFrame'i düzenle
-                        df = df.rename(columns={
-                            'Open': 'open',
-                            'High': 'high',
-                            'Low': 'low',
-                            'Close': 'close',
-                            'Volume': 'volume'
-                        })
-                        
-                        # Index ismi 'Date' olacak şekilde düzenle
-                        df.index.name = 'Date'
-                        
-                        yf_success = True
-                        yf_used_symbol = deneme_symbol
-                        break
-                except Exception:
-                    continue
-            
-            # Yfinance başarılı olduysa veya değilse log
-            format_str = ', '.join(yfinance_deneme_sembolleri)
-            if yf_success and yf_used_symbol:
-                # Veritabanına kaydet
-                result = self.save_candles(symbol, df, ulke, conn, cursor)
-                
-                # Başarılı ise True döndür
-                if result:
-                    self.log(f"[yfinance] {symbol} için {yf_used_symbol} formatında veri bulundu ({len(df)} kayıt)")
-                    # Veri bulundu ve kaydedildi - run metodu dışarıdan çağırmışsa buradan return
+                    # Bağlantı durumunu kontrol et
+                    cursor.execute("SELECT 1")
                     return True
-                return False
-            else:
-                self.log(f"[yfinance] {symbol} için {format_str} formatlarında denedim veri bulamadım")
+                except Exception:
+                    try:
+                        # Bağlantıyı yeniden aç
+                        self.log("⚠️ Veritabanı bağlantısı yenileniyor...")
+                        conn = self.db.connect()
+                        cursor = conn.cursor()
+                        return True
+                    except Exception as e:
+                        self.log(f"❌ Veritabanı bağlantısı kurulamadı: {str(e)}")
+                        return False
             
-            # 2. ADIM: investing.com'dan veri almayı dene
-            try:
-                # Ülke adını düzelt - investpy küçük harf bekler
-                country = ulke.lower() if ulke else None
-                
-                # Özel durumlar için ülke adı kontrolü
-                if country == "usa":
-                    country = "united states"
-                elif country == "uk":
-                    country = "united kingdom"
-                
-                # Tarih formatını ayarla (investpy için d/m/Y formatı)
-                from_date = start_date.strftime('%d/%m/%Y')
-                to_date = end_date.strftime('%d/%m/%Y')
-                
-                # Investing.com için sembol formatları hazırla
-                investing_deneme_sembolleri = []
-                
-                # 1. İlk olarak temel sembolü ekle
-                investing_symbol = self.get_investing_symbol(symbol, ulke)
-                investing_deneme_sembolleri.append(investing_symbol)
-                
-                # 2. Genel bilinen dönüşümleri ekle
-                if base_symbol == 'SPX':
-                    investing_deneme_sembolleri.append('S&P 500')
-                elif base_symbol == 'DJI':
-                    investing_deneme_sembolleri.append('Dow 30')
-                elif base_symbol == 'IXIC':
-                    investing_deneme_sembolleri.append('Nasdaq')
-                elif base_symbol == 'BIST100':
-                    investing_deneme_sembolleri.append('BIST 100')
-                elif base_symbol == 'BIST30':
-                    investing_deneme_sembolleri.append('BIST 30')
-                elif base_symbol == 'DAX':
-                    investing_deneme_sembolleri.append('DAX 30')
-                    investing_deneme_sembolleri.append('DAX')
-                elif base_symbol == 'FTSE':
-                    investing_deneme_sembolleri.append('FTSE 100')
-                elif base_symbol == 'N225':
-                    investing_deneme_sembolleri.append('Nikkei 225')
-                
-                # Her bir deneme sembolü için döngü
-                invest_success = False
-                invest_used_symbol = None
-                
-                # Direkt sorgu denemesi
-                for investing_symbol in investing_deneme_sembolleri:
-                    if country:
-                        try:
-                            # İlk olarak ülke ile direkt sorgulama yap
-                            historical_data = investpy.indices.get_index_historical_data(
-                                index=investing_symbol,
-                                country=country,
-                                from_date=from_date,
-                                to_date=to_date
-                            )
+            # Rate limit kontrol için son istek sayacı ve zamanlayıcı
+            request_count = 0
+            last_reset_time = time.time()
+            batch_size = 25  # Her 25 istek sonrası uzun bekleme
+            
+            # İşleme başla
+            for i, (parite, aktif, borsa, tip, ulke, aciklama) in enumerate(indices, 1):
+                try:
+                    # Her 100 endeks sonrasında bağlantıyı kontrol et
+                    if i % 100 == 0 and not check_and_reconnect():
+                        self.log("❌ Veritabanı bağlantısı sağlanamadığı için işlem durduruluyor.")
+                        break
+                    
+                    # Rate limit kontrolü - her batch_size istekte bir uzun bekleme
+                    request_count += 1
+                    if request_count >= batch_size:
+                        cooldown_time = 60  # 1 dakika bekle
+                        self.log(f"⚠️ Rate limiting için {cooldown_time} saniye bekleniyor...")
+                        time.sleep(cooldown_time)
+                        request_count = 0
+                        last_reset_time = time.time()
+                    
+                    self.log(f"İşleniyor: {i}/{total_indices} - {parite}")
+                    
+                    # Endeks için veri topla - şu anlık orijinal metodu kullanıyoruz,
+                    # daha sonra parite parametresini kullanacak şekilde güncelleyeceğiz
+                    try:
+                        # Bağlantının açık olduğundan emin ol
+                        if not check_and_reconnect():
+                            self.log(f"⚠️ {parite} için veritabanı bağlantısı kurulamadı. Geçiliyor.")
+                            errors += 1
+                            continue
                             
-                            if not historical_data.empty:
+                        # Tarihleri belirle
+                        end_date = datetime.now()
+                        # Son tarihi kontrol et
+                        
+                        # Son veri tarihini kontrol et
+                        cursor.execute("""
+                            SELECT TOP 1 tarih 
+                            FROM [VARLIK_YONETIM].[dbo].[kurlar] WITH(NOLOCK)
+                            WHERE parite = ? AND [interval] = '1d'
+                            ORDER BY tarih DESC
+                        """, (parite,))
+                        
+                        row = cursor.fetchone()
+                        
+                        if row:
+                            son_tarih = row[0]
+                            bugun = datetime.now().date()
+                            
+                            # Eğer son tarih bugünse veya dünse, güncelleme yok
+                            if (bugun - son_tarih.date()).days <= 1:
+                                self.log(f"✅ {parite} zaten güncel. Son veri tarihi: {son_tarih}")
+                                skipped += 1
+                                continue
+                            
+                            # Son tarihten günümüze kadar veri çek
+                            start_date = son_tarih + timedelta(days=1)
+                        else:
+                            # Hiç veri yoksa, başlangıç tarihinden itibaren çek
+                            start_date = self.baslangic_tarihi
+                            
+                        # Tarihleri string formatına çevir
+                        start_str = start_date.strftime('%Y-%m-%d')
+                        end_str = end_date.strftime('%Y-%m-%d')
+                                                
+                        # 1. ADIM: yfinance'den veriyi al - şu anlık sembol tespitini atla
+                        # Veritabanında sembol olup olmadığını kontrol et
+                        cursor.execute("""
+                            IF EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'endeks_semboller')
+                            BEGIN
+                                SELECT yf_symbol 
+                                FROM [VARLIK_YONETIM].[dbo].[endeks_semboller] WITH(NOLOCK)
+                                WHERE parite = ?
+                            END
+                            ELSE
+                            BEGIN
+                                SELECT NULL as yf_symbol
+                            END
+                        """, (parite,))
+                        
+                        symbol_row = cursor.fetchone()
+                        
+                        if symbol_row and symbol_row[0]:
+                            # Veritabanında kayıtlı sembol varsa, onu kullan
+                            yf_symbol = symbol_row[0]
+                            self.log(f"{parite} için veritabanında kayıtlı sembol: {yf_symbol}")
+                            
+                            # Tüm uyarıları bastır
+                            import warnings
+                            warnings.filterwarnings('ignore')
+                            
+                            # yfinance'den veri çek
+                            # Rate limiting için bekle
+                            self._wait_for_rate_limit()
+                            
+                            # Veriyi çek - rate limiting için yeniden deneme mekanizması
+                            retry_count = 0
+                            df = None
+                            
+                            while retry_count < self.retry_count:
+                                try:
+                                    df = yf.download(
+                                        tickers=yf_symbol,
+                                        start=start_str,
+                                        end=end_str,
+                                        interval='1d',
+                                        progress=False,
+                                        auto_adjust=True,
+                                        prepost=False,
+                                        threads=False
+                                    )
+                                    break
+                                except requests.exceptions.HTTPError as e:
+                                    # 404 hatalarını sessizce geç
+                                    if "404 Client Error" in str(e):
+                                        break
+                                    elif "Too Many Requests" in str(e):
+                                        retry_count += 1
+                                        self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                        time.sleep(self.rate_limit_cooldown)
+                                    else:
+                                        self.log(f"❌ {parite} için hata: {str(e)}")
+                                        retry_count = self.retry_count  # Döngüden çıkmak için
+                                except Exception as e:
+                                    if "Too Many Requests" in str(e):
+                                        retry_count += 1
+                                        self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                        time.sleep(self.rate_limit_cooldown)
+                                    else:
+                                        self.log(f"❌ {parite} için hata: {str(e)}")
+                                        retry_count = self.retry_count  # Döngüden çıkmak için
+                            
+                            if retry_count >= self.retry_count:
+                                self.log(f"❌ {parite} için maksimum yeniden deneme sayısına ulaşıldı.")
+                                errors += 1
+                                continue
+                        
+                            if not df.empty and 'Close' in df.columns:
                                 # DataFrame'i düzenle
-                                historical_data = historical_data.rename(columns={
+                                df = df.rename(columns={
                                     'Open': 'open',
                                     'High': 'high',
                                     'Low': 'low',
@@ -461,51 +861,102 @@ class IndexCollector:
                                     'Volume': 'volume'
                                 })
                                 
-                                # Verilerin geçerliliğini kontrol et
-                                required_cols = ['open', 'high', 'low', 'close']
-                                if all(col in historical_data.columns for col in required_cols):
-                                    if not historical_data[required_cols].isnull().any().any():
-                                        invest_success = True
-                                        invest_used_symbol = investing_symbol
-                                        
-                                        # Veritabanına kaydet
-                                        result = self.save_candles(symbol, historical_data, ulke, conn, cursor)
-                                        
-                                        # Başarılı ise True döndür
-                                        if result:
-                                            self.log(f"[investing] {symbol} için {investing_symbol} formatında veri bulundu ({len(historical_data)} kayıt)")
-                                            # Veri bulundu ve kaydedildi
-                                            return True
-                        except Exception:
-                            continue
-                
-                # Sembol adı arama ile dene
-                if not invest_success:
-                    try:
-                        for search_term in investing_deneme_sembolleri:
-                            try:
-                                # Endeks araması yap
-                                search_results = investpy.search_indices(
-                                    by='name',
-                                    value=search_term
-                                )
+                                # Kurlar tablosuna kaydet
+                                cursor.execute("""
+                                    SET NOCOUNT ON
+                                    DECLARE @kayit_sayisi INT = 0
+                                """)
+
+                                # BEGIN TRY/CATCH bloklarını kaldırıp normal işlem yapıyoruz
+                                cursor.execute("BEGIN TRANSACTION")
                                 
-                                if not search_results.empty:
-                                    # İlk bulunan endeksi kullan
-                                    found_index = search_results.iloc[0]
-                                    found_country = found_index['country']
-                                    found_name = found_index['name']
+                                for tarih, row in df.iterrows():
+                                    fiyat = float(row['close'])
+                                    dolar_karsiligi = fiyat  # Şimdilik aynı değer
                                     
-                                    historical_data = investpy.indices.get_index_historical_data(
-                                        index=found_name,
-                                        country=found_country,
-                                        from_date=from_date,
-                                        to_date=to_date
-                                    )
+                                    cursor.execute("""
+                                        INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke)
+                                        SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                                        WHERE NOT EXISTS (
+                                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                                            WHERE parite = ? AND [interval] = ? AND tarih = ?
+                                        )
+                                    """, 
+                                    (parite, '1d', tarih, fiyat, dolar_karsiligi, 'INDEX', 'INDEX', ulke, 
+                                    parite, '1d', tarih))
                                     
-                                    if not historical_data.empty:
+                                    # @kayit_sayisi'ni artır
+                                    if cursor.rowcount > 0:
+                                        kayit_sayisi = kayit_sayisi + 1 if 'kayit_sayisi' in locals() else 1
+                                
+                                # Veri başarıyla kaydedildi, veri_var'ı 1 olarak güncelle
+                                cursor.execute("""
+                                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                                    SET veri_var = 1, 
+                                        kayit_tarihi = GETDATE()
+                                    WHERE parite = ?
+                                """, (parite,))
+                                
+                                # İşlemi tamamla
+                                try:
+                                    conn.commit()
+                                    kayit_sayisi = kayit_sayisi if 'kayit_sayisi' in locals() else 0
+                                    self.log(f"✅ {parite} için {kayit_sayisi} yeni kayıt eklendi")
+                                    updated += 1
+                                except Exception as e:
+                                    conn.rollback()
+                                    self.log(f"❌ {parite} için veri kaydedilirken hata: {str(e)}")
+                                    errors += 1
+                        
+                        # Veritabanında sembol yok, sembol tespit etmeye çalış
+                        self.log(f"⚠️ {parite} için veritabanında sembol bulunamadı, sembol tespit ediliyor...")
+                        
+                        found_symbol = False
+                        
+                        # 1. Adım: Yaygın endeksler içinde ara
+                        common_indices = self.get_common_indices_symbols()
+                        if parite in common_indices:
+                            for test_symbol in common_indices[parite]:
+                                if self.test_index_symbol(test_symbol):
+                                    # Doğru sembol bulundu, veritabanına kaydet
+                                    self.update_symbol_in_db(parite, test_symbol)
+                                    self.log(f"✅ {parite} için sembol tespit edildi: {test_symbol}")
+                                    
+                                    # Rate limiting için bekle
+                                    self._wait_for_rate_limit()
+                                    
+                                    # Veriyi indir
+                                    retry_count = 0
+                                    df = None
+                                    
+                                    while retry_count < self.retry_count:
+                                        try:
+                                            df = yf.download(
+                                                tickers=test_symbol,
+                                                start=start_str,
+                                                end=end_str,
+                                                interval='1d',
+                                                progress=False,
+                                                auto_adjust=True,
+                                                prepost=False,
+                                                threads=False
+                                            )
+                                            break
+                                        except Exception as e:
+                                            if "Too Many Requests" in str(e):
+                                                retry_count += 1
+                                                self.log(f"⚠️ Rate limit aşıldı. {self.rate_limit_cooldown} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                                time.sleep(self.rate_limit_cooldown)
+                                            else:
+                                                raise e
+                                    
+                                    if retry_count >= self.retry_count:
+                                        self.log(f"❌ {parite} için maksimum yeniden deneme sayısına ulaşıldı.")
+                                        continue
+                                    
+                                    if not df.empty and 'Close' in df.columns:
                                         # DataFrame'i düzenle
-                                        historical_data = historical_data.rename(columns={
+                                        df = df.rename(columns={
                                             'Open': 'open',
                                             'High': 'high',
                                             'Low': 'low',
@@ -513,236 +964,294 @@ class IndexCollector:
                                             'Volume': 'volume'
                                         })
                                         
-                                        # Verilerin geçerliliğini kontrol et
-                                        required_cols = ['open', 'high', 'low', 'close']
-                                        if all(col in historical_data.columns for col in required_cols):
-                                            if not historical_data[required_cols].isnull().any().any():
-                                                invest_success = True
-                                                invest_used_symbol = found_name
-                                                
-                                                # Veritabanına kaydet
-                                                result = self.save_candles(symbol, historical_data, ulke, conn, cursor)
-                                                
-                                                # Başarılı ise True döndür
-                                                if result:
-                                                    self.log(f"[investing] {symbol} için {found_name} formatında veri bulundu ({len(historical_data)} kayıt)")
-                                                    # Veri bulundu ve kaydedildi
-                                                    return True
-                            except Exception:
-                                continue
-                    except Exception:
-                        pass
-                
-                # Investing.com başarısız log
-                format_str = ', '.join(investing_deneme_sembolleri)
-                if not invest_success:
-                    self.log(f"[investing] {symbol} için {format_str} formatlarında denedim veri bulamadım")
-                
-            except Exception:
-                self.log(f"[investing] {symbol} için {investing_symbol} formatında denedim veri bulamadım")
-            
-            # Her iki API de başarısız oldu
-            # Veri bulunamadı, veri_var = 0 olarak güncelle ve sadece bir kez log yap
-            try:
-                self.update_data_status(symbol, False, conn, cursor)
-            except Exception:
-                # Hata olursa ekstra log yapmaya gerek yok, zaten update_data_status içinde log var
-                pass
-            
-            return False
-            
-        except Exception as e:
-            self.log(f"❌ {symbol} için veri toplama hatası: {str(e)}")
-            return False
-            
-    def save_candles(self, symbol, df, ulke, conn=None, cursor=None):
-        """Mum verilerini veritabanına kaydeder"""
-        if df.empty:
-            return False
-            
-        close_conn = False
-        own_conn = None
-        own_cursor = None
-        
-        try:
-            # Bağlantı yönetimi
-            if conn is None or cursor is None or getattr(conn, 'closed', False):
-                close_conn = True
-                own_conn = self.db.connect()
-                if not own_conn:
-                    return False
-                own_cursor = own_conn.cursor()
-                
-            # Kullanılacak bağlantı ve cursor
-            working_conn = conn if conn and not getattr(conn, 'closed', False) else own_conn
-            working_cursor = cursor if cursor and not getattr(cursor, 'closed', False) else own_cursor
-            
-            # Borsa bilgisini al - birkaç yaygın sembolü dene
-            exchange = "INDEX"  # Varsayılan değer
-            
-            try:
-                # Uyarıları bastır
-                import warnings
-                import sys
-                import io
-                
-                warnings.filterwarnings('ignore')
-                old_stdout = sys.stdout
-                old_stderr = sys.stderr
-                sys.stdout = io.StringIO()
-                sys.stderr = io.StringIO()
-                
-                try:
-                    # Farklı sembol formatlarını deneyelim
-                    ticker_deneme_sembolleri = []
-                    base_symbol = symbol.split('/')[0] if '/' in symbol else symbol
-                    
-                    # 1. Temel sembol
-                    ticker_deneme_sembolleri.append(base_symbol)
-                    
-                    # 2. Yfinance sembolü
-                    yf_symbol = self.get_yfinance_symbol(symbol, ulke)
-                    if yf_symbol not in ticker_deneme_sembolleri:
-                        ticker_deneme_sembolleri.append(yf_symbol)
-                    
-                    # 3. Özel semboller
-                    if base_symbol == 'SPX':
-                        ticker_deneme_sembolleri.append('^GSPC')
-                    elif base_symbol == 'DJI':
-                        ticker_deneme_sembolleri.append('^DJI')
-                    elif base_symbol == 'IXIC':
-                        ticker_deneme_sembolleri.append('^IXIC')
-                    
-                    for deneme_symbol in ticker_deneme_sembolleri:
-                        try:
-                            # yfinance'den borsa bilgisini sorgula
-                            ticker = yf.Ticker(deneme_symbol)
-                            info = ticker.info
+                                        # Kurlar tablosuna kaydet
+                                        cursor.execute("""
+                                            SET NOCOUNT ON
+                                            DECLARE @kayit_sayisi INT = 0
+                                        """)
+
+                                        # BEGIN TRY/CATCH bloklarını kaldırıp normal işlem yapıyoruz
+                                        cursor.execute("BEGIN TRANSACTION")
+                                        
+                                        for tarih, row in df.iterrows():
+                                            fiyat = float(row['close'])
+                                            dolar_karsiligi = fiyat  # Şimdilik aynı değer
+                                            
+                                            cursor.execute("""
+                                                INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke)
+                                                SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                                                WHERE NOT EXISTS (
+                                                    SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                                                    WHERE parite = ? AND [interval] = ? AND tarih = ?
+                                                )
+                                            """, 
+                                            (parite, '1d', tarih, fiyat, dolar_karsiligi, 'INDEX', 'INDEX', ulke, 
+                                            parite, '1d', tarih))
+                                            
+                                            # @kayit_sayisi'ni artır
+                                            if cursor.rowcount > 0:
+                                                kayit_sayisi = kayit_sayisi + 1 if 'kayit_sayisi' in locals() else 1
+                                        
+                                        # Veri başarıyla kaydedildi, veri_var'ı 1 olarak güncelle
+                                        cursor.execute("""
+                                            UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                                            SET veri_var = 1, 
+                                                kayit_tarihi = GETDATE()
+                                            WHERE parite = ?
+                                        """, (parite,))
+                                        
+                                        # İşlemi tamamla
+                                        try:
+                                            conn.commit()
+                                            kayit_sayisi = kayit_sayisi if 'kayit_sayisi' in locals() else 0
+                                            self.log(f"✅ {parite} için {kayit_sayisi} yeni kayıt eklendi")
+                                            updated += 1
+                                        except Exception as e:
+                                            conn.rollback()
+                                            self.log(f"❌ {parite} için veri kaydedilirken hata: {str(e)}")
+                                            errors += 1
+                                    
+                                    found_symbol = True
+                                    break
                             
-                            if info and 'exchange' in info:
-                                exchange = info['exchange'].upper()
-                                self.log(f"{symbol} için borsa bilgisi bulundu: {exchange} (yfinance: {deneme_symbol})")
-                                break
-                        except:
-                            continue
-                finally:
-                    # stdout ve stderr'i eski haline getir
-                    sys.stdout = old_stdout
-                    sys.stderr = old_stderr
-            except Exception as e:
-                self.log(f"{symbol} için borsa bilgisi alınamadı: {str(e)}")
-            
-            # Döviz kuru için bir kere sorgula
-            currency_map = {
-                'Turkey': 'TRY',
-                'Japan': 'JPY',
-                'UK': 'GBP',
-                'Europe': 'EUR',
-                # Diğer ülkeler eklenebilir
-            }
-            
-            currency_usd = None
-            if ulke != 'USA' and ulke in currency_map:  # Amerikan endeksleri zaten dolar bazında
-                currency = currency_map.get(ulke)
-                working_cursor.execute("""
-                    SELECT TOP 1 fiyat
-                    FROM [VARLIK_YONETIM].[dbo].[kurlar]
-                    WHERE parite = ? AND borsa = 'FOREX'
-                    ORDER BY tarih DESC
-                """, (f"{currency}/USD",))
-                
-                row = working_cursor.fetchone()
-                if row:
-                    currency_usd = float(row[0])
-            
-            kayit_sayisi = 0
-            
-            for tarih, row in df.iterrows():
-                try:
-                    fiyat = float(row['close'])
-                    
-                    # Dolar karşılığı hesapla
-                    if ulke == 'USA':
-                        dolar_karsiligi = fiyat
-                    elif currency_usd is not None:
-                        dolar_karsiligi = fiyat / currency_usd
-                    else:
-                        # Döviz kuru bulunamadıysa, varsayılan olarak fiyatın kendisini kullan
-                        dolar_karsiligi = fiyat
+                            if found_symbol:
+                                continue
                         
-                    working_cursor.execute("""
-                        INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke)
-                        SELECT ?, ?, ?, ?, ?, ?, ?, ?
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar]
-                            WHERE parite = ? AND [interval] = ? AND tarih = ?
-                        )
-                    """, 
-                    (symbol, '1d', tarih, fiyat, dolar_karsiligi, exchange, 'INDEX', ulke, 
-                     symbol, '1d', tarih))
-                    
-                    if working_cursor.rowcount > 0:
-                        kayit_sayisi += 1
-                        # Yeni kapanış fiyatlarını logla
-                        self.log(f"🔍 YENİ VERİ - {symbol} için {tarih.strftime('%Y-%m-%d')}: Kapanış fiyatı = {fiyat}, USD karşılığı = {dolar_karsiligi:.2f}")
+                        # 2. Adım: Ülke kodu ekleyerek dene
+                        if ulke:
+                            country_code = self.get_country_code(ulke)
+                            if country_code:
+                                # Farklı ülke kodlarını kullanarak sembol oluştur ve dene
+                                country_symbols = []
+                                
+                                # Temel sembol
+                                country_symbols.append(f"{parite}.{country_code}")
+                                
+                                # Şaretler ile sembol
+                                if not parite.startswith('^'):
+                                    country_symbols.append(f"^{parite}")
+                                    country_symbols.append(f"^{parite}.{country_code}")
+                                
+                                # Nokta ile sembol
+                                if not parite.startswith('.'):
+                                    country_symbols.append(f".{parite}")
+                                    country_symbols.append(f".{parite}.{country_code}")
+                                
+                                for country_symbol in country_symbols:
+                                    if self.test_index_symbol(country_symbol):
+                                        # Doğru sembol bulundu, veritabanına kaydet
+                                        self.update_symbol_in_db(parite, country_symbol)
+                                        self.log(f"✅ {parite} için ülke kodlu sembol tespit edildi: {country_symbol}")
+                                        
+                                        # Rate limiting için bekle 
+                                        self._wait_for_rate_limit()
+                                        
+                                        # Veriyi indir
+                                        retry_count = 0
+                                        df = None
+                                        
+                                        while retry_count < self.retry_count:
+                                            try:
+                                                df = yf.download(
+                                                    tickers=country_symbol,
+                                                    start=start_str,
+                                                    end=end_str,
+                                                    interval='1d',
+                                                    progress=False,
+                                                    auto_adjust=True,
+                                                    prepost=False,
+                                                    threads=False
+                                                )
+                                                break
+                                            except Exception as e:
+                                                if "Too Many Requests" in str(e):
+                                                    retry_count += 1
+                                                    self.log(f"⚠️ Rate limit aşıldı. {self.rate_limit_cooldown} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                                    time.sleep(self.rate_limit_cooldown)
+                                                else:
+                                                    raise e
+                                        
+                                        if retry_count >= self.retry_count:
+                                            self.log(f"❌ {parite} için maksimum yeniden deneme sayısına ulaşıldı.")
+                                            continue
+                                    
+                                    found_symbol = True
+                                    break
+                                
+                                if found_symbol:
+                                    continue
+                        
+                        # Hala bulunamadıysa, direkt sembolü yfinance formatını dene
+                        try:
+                            # Sembolü direkt olarak dene
+                            direct_symbols = [
+                                parite,
+                                f"^{parite}",
+                                f".{parite}"
+                            ]
+                            
+                            for direct_symbol in direct_symbols:
+                                if self.test_index_symbol(direct_symbol):
+                                    # Doğru sembol bulundu, veritabanına kaydet
+                                    self.update_symbol_in_db(parite, direct_symbol)
+                                    self.log(f"✅ {parite} için doğrudan sembol tespit edildi: {direct_symbol}")
+                                    
+                                    # Rate limiting için bekle
+                                    self._wait_for_rate_limit()
+                                    
+                                    # Veriyi indir
+                                    retry_count = 0
+                                    df = None
+                                    
+                                    while retry_count < self.retry_count:
+                                        try:
+                                            df = yf.download(
+                                                tickers=direct_symbol,
+                                                start=start_str,
+                                                end=end_str,
+                                                interval='1d',
+                                                progress=False,
+                                                auto_adjust=True,
+                                                prepost=False,
+                                                threads=False
+                                            )
+                                            break
+                                        except requests.exceptions.HTTPError as e:
+                                            # 404 hatalarını sessizce geç
+                                            if "404 Client Error" in str(e):
+                                                break
+                                            elif "Too Many Requests" in str(e):
+                                                retry_count += 1
+                                                self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                                time.sleep(self.rate_limit_cooldown)
+                                            else:
+                                                self.log(f"❌ {parite} için hata: {str(e)}")
+                                                retry_count = self.retry_count  # Döngüden çıkmak için
+                                        except Exception as e:
+                                            if "Too Many Requests" in str(e):
+                                                retry_count += 1
+                                                self.log(f"⚠️ Rate limit aşıldı. {self.retry_delay} saniye bekleniyor ({retry_count}/{self.retry_count})...")
+                                                time.sleep(self.rate_limit_cooldown)
+                                            else:
+                                                self.log(f"❌ {parite} için hata: {str(e)}")
+                                                retry_count = self.retry_count  # Döngüden çıkmak için
+                                    
+                                    if retry_count >= self.retry_count:
+                                        self.log(f"❌ {parite} için maksimum yeniden deneme sayısına ulaşıldı.")
+                                        continue
+                                
+                                    if not df.empty and 'Close' in df.columns:
+                                        # DataFrame'i düzenle
+                                        df = df.rename(columns={
+                                            'Open': 'open',
+                                            'High': 'high',
+                                            'Low': 'low',
+                                            'Close': 'close',
+                                            'Volume': 'volume'
+                                        })
+                                        
+                                        # Kurlar tablosuna kaydet
+                                        cursor.execute("""
+                                            SET NOCOUNT ON
+                                            DECLARE @kayit_sayisi INT = 0
+                                        """)
+
+                                        # BEGIN TRY/CATCH bloklarını kaldırıp normal işlem yapıyoruz
+                                        cursor.execute("BEGIN TRANSACTION")
+                                        
+                                        for tarih, row in df.iterrows():
+                                            fiyat = float(row['close'])
+                                            dolar_karsiligi = fiyat  # Şimdilik aynı değer
+                                            
+                                            cursor.execute("""
+                                                INSERT INTO [VARLIK_YONETIM].[dbo].[kurlar] (parite, [interval], tarih, fiyat, dolar_karsiligi, borsa, tip, ulke)
+                                                SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                                                WHERE NOT EXISTS (
+                                                    SELECT 1 FROM [VARLIK_YONETIM].[dbo].[kurlar]
+                                                    WHERE parite = ? AND [interval] = ? AND tarih = ?
+                                                )
+                                            """, 
+                                            (parite, '1d', tarih, fiyat, dolar_karsiligi, 'INDEX', 'INDEX', ulke, 
+                                            parite, '1d', tarih))
+                                            
+                                            # @kayit_sayisi'ni artır
+                                            if cursor.rowcount > 0:
+                                                kayit_sayisi = kayit_sayisi + 1 if 'kayit_sayisi' in locals() else 1
+                                        
+                                        # Veri başarıyla kaydedildi, veri_var'ı 1 olarak güncelle
+                                        cursor.execute("""
+                                            UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                                            SET veri_var = 1, 
+                                                kayit_tarihi = GETDATE()
+                                            WHERE parite = ?
+                                        """, (parite,))
+                                        
+                                        # İşlemi tamamla
+                                        try:
+                                            conn.commit()
+                                            kayit_sayisi = kayit_sayisi if 'kayit_sayisi' in locals() else 0
+                                            self.log(f"✅ {parite} için {kayit_sayisi} yeni kayıt eklendi")
+                                            updated += 1
+                                        except Exception as e:
+                                            conn.rollback()
+                                            self.log(f"❌ {parite} için veri kaydedilirken hata: {str(e)}")
+                                            errors += 1
+                                    
+                                    found_symbol = True
+                                    break
+                            
+                            if found_symbol:
+                                continue
+                        except Exception as e:
+                            self.log(f"⚠️ {parite} sembol denemesi sırasında hata: {str(e)}")
+                        
+                        # Ya sembol yoksa ya da veri çekilemedi
+                        self.log(f"❌ {parite} için veri bulunamadı veya sembol mevcut değil")
+                        errors += 1
+                        
+                        # Bağlantı kontrolü
+                        if not check_and_reconnect():
+                            self.log(f"⚠️ {parite} için veritabanı bağlantısı kurulamadı. Devam edilemiyor.")
+                            continue
+                            
+                        # Veri_var değerini güncelle - 0 olarak
+                        cursor.execute("""
+                            UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
+                            SET veri_var = 0
+                            WHERE parite = ?
+                        """, (parite,))
+                        conn.commit()
+                    except Exception as e:
+                        self.log(f"❌ {parite} veri toplama hatası: {str(e)}")
+                        errors += 1
+                        
+                    processed += 1
                     
                 except Exception as e:
-                    self.log(f"Kayıt hatası ({symbol}, {tarih}): {str(e)}")
-                    continue
+                    self.log(f"❌ {parite} işlenirken hata: {str(e)}")
+                    errors += 1
                     
-            # Veriler kaydedildi, commit yap - sadece bağlantı açık ise
-            if not getattr(working_conn, 'closed', False):
-                working_conn.commit()
-            
-            # Veri başarıyla kaydedildi, veri_var'ı 1 olarak güncelle (kayıt sayısı 0 olsa bile)
-            try:
-                # SQL sorgusunu basitleştir, NOLOCK kaldır
-                working_cursor.execute("""
-                    UPDATE [VARLIK_YONETIM].[dbo].[pariteler]
-                    SET veri_var = 1, 
-                        borsa = ?, 
-                        kayit_tarihi = GETDATE()
-                    WHERE parite = ?
-                """, (exchange, symbol))
-                
-                # Etkilenen satır sayısını al
-                row_count = working_cursor.rowcount
-                
-                # Her durumda commit yap
-                if not getattr(working_conn, 'closed', False):
-                    working_conn.commit()
-                    
-                # Güncelleme başarılı oldu mu kontrol et
-                if row_count > 0:
-                    self.log(f"{symbol} için veri_var = 1 olarak güncellendi")
-                else:
-                    self.log(f"{symbol} için güncelleme yapılamadı (etkilenen satır: {row_count})")
-                
-            except Exception as e:
-                self.log(f"Parite durumu güncellenemedi ({symbol}): {str(e)}")
-                
-            if kayit_sayisi > 0:
-                self.log(f"{symbol} için {kayit_sayisi} yeni kayıt eklendi")
-            else:
-                self.log(f"{symbol} için veritabanı güncel, yeni kayıt yok")
-                
-            return True
+            self.log(f"Endeks toplama tamamlandı. Toplam: {total_indices}, İşlenen: {processed}, Atlanan: {skipped}, Güncellenen: {updated}, Hata: {errors}")
             
         except Exception as e:
-            self.log(f"Veri kaydetme hatası ({symbol}): {str(e)}")
-            if close_conn and own_conn and not getattr(own_conn, 'closed', False):
-                try:
-                    own_conn.rollback()
-                except Exception as ex:
-                    self.log(f"Rollback hatası: {str(ex)}")
-            return False
+            self.log(f"Endeks veri toplama işleminde hata: {str(e)}")
         finally:
-            # Sadece kendimiz açtığımız bağlantıyı kapatırız
-            if close_conn:
-                try:
-                    if own_cursor and not getattr(own_cursor, 'closed', True):
-                        own_cursor.close()
-                    if own_conn and not getattr(own_conn, 'closed', True):
-                        own_conn.close()
-                except Exception as e:
-                    self.log(f"Bağlantı kapatma hatası: {str(e)}") 
+            try:
+                # Bağlantıyı kapat
+                if 'conn' in locals() and conn:
+                    conn.close()
+            except Exception:
+                pass
+                
+                
+if __name__ == "__main__":
+    # IndexCollector sınıfını oluştur ve çalıştır
+    try:
+        collector = IndexCollector()
+        collector.run()
+    except KeyboardInterrupt:
+        print("\nKullanıcı tarafından durduruldu.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\nProgram hatası: {str(e)}")
+        sys.exit(1)
