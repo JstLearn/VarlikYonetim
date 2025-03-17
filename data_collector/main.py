@@ -14,6 +14,7 @@ from parite_collectors.forex_collector import ForexCollector as PariteForexColle
 from parite_collectors.index_collector import IndexCollector as PariteIndexCollector
 from parite_collectors.stock_collector import StockCollector as PariteStockCollector
 from parite_collectors.commodity_collector import CommodityCollector as PariteCommodityCollector
+from parite_collectors.etf_collector import ETFCollector as PariteETFCollector
 
 # Mum toplayıcıları
 from candle_collectors.binance_spot_collector import BinanceSpotCollector as CandleBinanceSpotCollector
@@ -39,8 +40,10 @@ def collect_data(args):
             collectors.append(PariteBinanceFuturesCollector())
         if args.source in ['all', 'binance_spot']:
             collectors.append(PariteBinanceSpotCollector())
-        if args.source in ['all', 'index']:
-            collectors.append(PariteIndexCollector())                
+        #if args.source in ['all', 'index']:
+        #    collectors.append(PariteIndexCollector())
+        if args.source in ['all', 'etf']:
+            collectors.append(PariteETFCollector())
         #if args.source in ['all', 'forex']:
         #    collectors.append(PariteForexCollector())
     #    if args.source in ['all', 'stock']:
@@ -55,11 +58,11 @@ def collect_data(args):
             collectors.append(CandleBinanceFuturesCollector())
         if args.source in ['all', 'binance_spot']:
             collectors.append(CandleBinanceSpotCollector())
-        if args.source in ['all', 'index']:
-            collectors.append(CandleIndexCollector())
+        #if args.source in ['all', 'index']:   # INDEX ve ETF olarak 2'ye ayrılacak
+        #    collectors.append(CandleIndexCollector())
         #if args.source in ['all', 'forex']:
         #    collectors.append(CandleForexCollector())
-#        if args.source in ['all', 'stock']:
+#        if args.source in ['all', 'stock']:  # Değişecek
 #            collectors.append(CandleStockCollector())
             
     # Her collector için çalıştır
@@ -80,7 +83,7 @@ def main():
     """Ana fonksiyon"""
     # Argüman ayrıştırıcıyı ayarla
     parser = argparse.ArgumentParser(description='Veri toplama servisi')
-    parser.add_argument('--source', type=str, choices=['all', 'binance_futures', 'binance_spot', 'forex', 'index', 'commodity', 'stock'],
+    parser.add_argument('--source', type=str, choices=['all', 'binance_futures', 'binance_spot', 'forex', 'index', 'etf', 'commodity', 'stock'],
                       default='all', help='Veri kaynağı')
     parser.add_argument('--type', type=str, choices=['all', 'parite', 'candle'],
                       default='all', help='Veri tipi')
