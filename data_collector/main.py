@@ -14,7 +14,7 @@ from parite_collectors.forex_collector import ForexCollector as PariteForexColle
 from parite_collectors.index_collector import IndexCollector as PariteIndexCollector
 from parite_collectors.stock_collector import StockCollector as PariteStockCollector
 from parite_collectors.commodity_collector import CommodityCollector as PariteCommodityCollector
-from parite_collectors.etf_collector import ETFCollector as PariteETFCollector
+from parite_collectors.etf_collector import ETFCollector
 
 # Mum toplayıcıları
 from candle_collectors.binance_spot_collector import BinanceSpotCollector as CandleBinanceSpotCollector
@@ -43,7 +43,7 @@ def collect_data(args):
         #if args.source in ['all', 'index']:
         #    collectors.append(PariteIndexCollector())
         if args.source in ['all', 'etf']:
-            collectors.append(PariteETFCollector())
+            collectors.append(ETFCollector())
         #if args.source in ['all', 'forex']:
         #    collectors.append(PariteForexCollector())
     #    if args.source in ['all', 'stock']:

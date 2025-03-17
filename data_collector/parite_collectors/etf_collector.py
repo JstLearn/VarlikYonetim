@@ -55,9 +55,140 @@ class ETFCollector:
         self.skipped_etfs = []  # Çeşitli nedenlerle atlanmış ETF'ler
         self.skipped_reasons = {}  # Atlama nedenleri
         
+        # Veritabanı bağlantısı
+        try:
+            self.db = Database()
+            self.db.connect()  # Bağlantıyı başlat
+            logger.info("Veritabanı bağlantısı başarıyla kuruldu")
+        except Exception as e:
+            logger.error(f"Veritabanı bağlantı hatası: {str(e)}")
+            raise
+        
         # Logger mesajı run metoduna taşınıyor, burada çalıştırılmamalı
         # Böylece kolektör başlatıldığında değil, run() çağrıldığında bildirilecek
         # logger.info("ETFCollector başlatıldı")
+        
+    def normalize_exchange_name(self, exchange, country):
+        """
+        Borsa adını normalize eder
+        """
+        # Borsa adı boşsa veya bilinmiyorsa
+        if not exchange or exchange == "UNKNOWN":
+            # Ülke kodunu kullan
+            if country and country != "UNKNOWN":
+                return f"{country}_ETF"
+            return "GLOBAL_ETF"
+        
+        # Borsa adını temizle ve normalize et
+        exchange = exchange.strip().upper()
+        
+        # Özel durumlar
+        exchange_map = {
+            "NYSE": "NYSE",
+            "NASDAQ": "NASDAQ",
+            "AMEX": "AMEX",
+            "LSE": "LSE",
+            "TSE": "TSE",
+            "SSE": "SSE",
+            "SZSE": "SZSE",
+            "HKEX": "HKEX",
+            "ASX": "ASX",
+            "BSE": "BSE",
+            "NSE": "NSE",
+            "BIST": "BIST",
+            "MOEX": "MOEX",
+            "JSE": "JSE",
+            "BM&F": "BMFBOVESPA",
+            "BMV": "BMV",
+            "TSX": "TSX"
+        }
+        
+        # Eşleşen borsa adı varsa onu kullan
+        for key, value in exchange_map.items():
+            if key in exchange:
+                return value
+        
+        # Eşleşme yoksa orijinal adı kullan (20 karakterle sınırla)
+        return exchange[:20]
+
+    def sync_pariteler_to_db(self, pariteler):
+        """
+        ETF'leri veritabanına senkronize eder
+        
+        Args:
+            pariteler: Eklenecek ETF listesi
+            
+        Returns:
+            tuple: (eklenen_sayısı, atlanan_sayısı)
+        """
+        try:
+            eklenen = 0
+            atlanan = 0
+            
+            # Her bir ETF için
+            for parite in pariteler:
+                try:
+                    # Parite zaten var mı kontrol et
+                    query = """
+                    SELECT 1 FROM pariteler WITH (NOLOCK)
+                    WHERE parite = ? AND borsa = ? AND tip = 'ETF'
+                    """
+                    result = self.db.fetch_one(query, (parite['parite'], parite['borsa']))
+                    
+                    if result:
+                        # Parite zaten var, güncelle
+                        update_query = """
+                        UPDATE pariteler 
+                        SET aktif = ?, 
+                            ulke = ?,
+                            aciklama = ?,
+                            veri_var = 0,
+                            veriler_guncel = 0
+                        WHERE parite = ? AND borsa = ? AND tip = 'ETF'
+                        """
+                        update_params = (
+                            parite['aktif'],
+                            parite['ulke'],
+                            parite['aciklama'],
+                            parite['parite'],
+                            parite['borsa']
+                        )
+                        if self.db.execute_non_query(update_query, update_params):
+                            atlanan += 1
+                            self.skipped_etfs.append(parite)
+                            self.skipped_reasons[parite['parite']] = "Veritabanında zaten mevcut"
+                    else:
+                        # Yeni parite ekle
+                        insert_query = """
+                        INSERT INTO pariteler (
+                            parite, aktif, borsa, tip, ulke, 
+                            aciklama, veri_var, veriler_guncel, kayit_tarihi
+                        ) VALUES (
+                            ?, ?, ?, 'ETF', ?, ?, 0, 0, GETDATE()
+                        )
+                        """
+                        insert_params = (
+                            parite['parite'],
+                            parite['aktif'],
+                            parite['borsa'],
+                            parite['ulke'],
+                            parite['aciklama']
+                        )
+                        if self.db.execute_non_query(insert_query, insert_params):
+                            eklenen += 1
+                            self.added_etfs.append(parite)
+                        
+                except Exception as e:
+                    logger.error(f"ETF veritabanı işlem hatası ({parite['parite']}): {str(e)}")
+                    self.skipped_etfs.append(parite)
+                    self.skipped_reasons[parite['parite']] = f"Veritabanı hatası: {str(e)}"
+                    continue
+            
+            return eklenen, atlanan
+            
+        except Exception as e:
+            logger.error(f"Veritabanı senkronizasyon hatası: {str(e)}")
+            return 0, 0
         
     def setup_webdriver(self):
         """
@@ -351,16 +482,17 @@ class ETFCollector:
                                     if option.is_displayed():
                                         logger.info(f"Dünya seçeneği bulundu: '{option.text}' ({xpath})")
                                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", option)
+                                        time.sleep(1)
+                                        # Farklı tıklama stratejileri dene
+                                        try:
+                                            option.click()
+                                            logger.info("Dünya ETF seçeneğine tıklandı (normal tıklama)")
+                                        except Exception as click_error:
+                                            logger.error(click_error)
+                                            world_option_found = True
                                 except Exception as e:
                                     logger.error(e)
-                                time.sleep(1)
-                                # Farklı tıklama stratejileri dene
-                                try:
-                                    option.click()
-                                    logger.info("Dünya ETF seçeneğine tıklandı (normal tıklama)")
-                                except Exception as click_error:
-                                    logger.error(click_error)
-                                world_option_found = True
+                                    continue
                                 break
                     
                     # Dünya seçeneği bulunamadıysa tüm açık menü öğelerini listele ve ilkini seç
@@ -458,7 +590,7 @@ class ETFCollector:
                     except Exception as e:
                         logger.warning(f"Market filtre etkileşim hatası: {str(e)}")
             
-            # ETF tablosunu bekleme - ayrı bir try bloğu başlıyor
+            # ETF tablosunu bekleme
             try:
                 table = wait.until(
                     EC.presence_of_element_located((By.XPATH, "//table[contains(@class, 'table-')]"))
@@ -466,7 +598,7 @@ class ETFCollector:
                 logger.info("ETF tablosu bulundu")
             except TimeoutException:
                 logger.error("TradingView'da ETF tablosu bulunamadı - zaman aşımı!")
-                return (0, 0, 0)
+                return []
             
             # TradingView'ın gösterdiği maksimum ETF sayısı (gözlemlenen değer)
             tradingview_max_limit = 400
@@ -583,7 +715,11 @@ class ETFCollector:
             max_rows = min(target_etfs, total_rows)
             
             # Hızlı işleme için ilerleme loglarını azalt
-            log_interval = 100  # Her 200 ETF'de bir log göster
+            log_interval = 100  # Her 100 ETF'de bir log göster
+            
+            etfs = []
+            batch_size = 100  # Her seferde 100 ETF'yi veritabanına ekle
+            current_batch = []
             
             for i in range(max_rows):
                 try:
@@ -601,112 +737,26 @@ class ETFCollector:
                             break
                         continue
                         
-                    try:
-                        # Sembol hücresi
-                        symbol_cell = row.find_elements(By.TAG_NAME, "td")[0]
-                        symbol_element = symbol_cell.find_element(By.TAG_NAME, "a")
-                        symbol = symbol_element.text.strip()
+                    # ETF verilerini çıkar ve batch'e ekle
+                    etf_info = self._extract_etf_info(row)
+                    if etf_info:
+                        current_batch.append(etf_info)
+                        etfs.append(etf_info)
                         
-                        # Sembol URL
-                        symbol_url = symbol_element.get_attribute("href")
-                        
-                        # Borsa bilgisi (genellikle sembolün yanındaki <sup> etiketi içinde)
-                        exchange = "UNKNOWN"
-                        try:
-                            sup_element = symbol_cell.find_element(By.TAG_NAME, "sup")
-                            exchange = sup_element.text.strip()
-                        except NoSuchElementException:
-                            pass
-                        
-                        # İsim (2. hücre)
-                        name = ""
-                        try:
-                            name_cell = row.find_elements(By.TAG_NAME, "td")[1]
-                            name = name_cell.text.strip()
-                        except (IndexError, NoSuchElementException):
-                            name = symbol  # İsim bulunamazsa sembolü kullan
-                        
-                        # Ülke bilgisi (bayrak elementinden)
-                        country = "UNKNOWN"
-                        try:
-                            flag_element = symbol_cell.find_element(By.XPATH, ".//i[contains(@class, 'flag-')]")
-                            flag_class = flag_element.get_attribute("class")
-                            
-                            # flag- ile başlayan class ismini bul
-                            for class_name in flag_class.split():
-                                if class_name.startswith("flag-") and not "flag-CyFdKRxR" in class_name:
-                                    country = class_name.replace("flag-", "").upper()
-                                    break
-                        except NoSuchElementException:
-                            pass
-                        
-                        # Fiyat ve para birimi (3. hücre)
-                        currency = "USD"  # Varsayılan para birimi
-                        price = "N/A"
-                        
-                        try:
-                            price_cell = row.find_elements(By.TAG_NAME, "td")[2]
-                            price_text = price_cell.text.strip()
-                            
-                            # Para birimi tespiti
-                            currency_symbols = {
-                                "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", 
-                                "₩": "KRW", "₺": "TRY", "₽": "RUB", "₹": "INR",
-                                "A$": "AUD", "C$": "CAD", "HK$": "HKD", "S$": "SGD",
-                                "CHF": "CHF", "SEK": "SEK", "NOK": "NOK", "DKK": "DKK",
-                                "PLN": "PLN", "CZK": "CZK", "HUF": "HUF", "MXN": "MXN",
-                                "BRL": "BRL", "ZAR": "ZAR", "CNY": "CNY", "CNH": "CNH"
-                            }
-                            
-                            # Para birimi tespiti
-                            currency_found = False
-                            for symbol_code, currency_code in currency_symbols.items():
-                                if symbol_code in price_text:
-                                    currency = currency_code
-                                    currency_found = True
-                                    break
-                                    
-                            # Parantez içindeki para birimi kodunu kontrol et
-                            if not currency_found and '(' in price_text and ')' in price_text:
-                                parts = price_text.split('(')
-                                if len(parts) > 1:
-                                    possible_currency = parts[1].split(')')[0].strip()
-                                    if possible_currency in currency_symbols.values():
-                                        currency = possible_currency
-                            
-                            price = price_text
-                        except (IndexError, NoSuchElementException):
-                            pass
-                        
-                        # Değişim yüzdesi (4. hücre)
-                        change_percent = "N/A"
-                        try:
-                            change_cell = row.find_elements(By.TAG_NAME, "td")[3]
-                            change_percent = change_cell.text.strip()
-                        except (IndexError, NoSuchElementException):
-                            pass
-                        
-                        # ETF bilgilerini listeye ekle
-                        etf = {
-                            'symbol': symbol,
-                            'name': name,
-                            'exchange': exchange,
-                            'price': price,
-                            'change_percent': change_percent,
-                            'country': country,
-                            'currency': currency,
-                            'url': symbol_url
-                        }
-                        
-                        etfs.append(etf)
-                        self.all_etfs.append(etf)
-                    except Exception as e:
-                        logger.warning(f"ETF veri çıkarma hatası (satır {i}): {str(e)}")
-                        continue
+                        # Batch dolduğunda veritabanına ekle
+                        if len(current_batch) >= batch_size:
+                            eklenen, atlanan = self.sync_pariteler_to_db(current_batch)
+                            logger.info(f"Batch işlemi: {eklenen} eklendi, {atlanan} atlandı")
+                            current_batch = []
                     
                 except Exception as e:
                     logger.warning(f"ETF satırı işleme hatası (satır {i}): {str(e)}")
                     continue
+            
+            # Kalan batch'i işle
+            if current_batch:
+                eklenen, atlanan = self.sync_pariteler_to_db(current_batch)
+                logger.info(f"Son batch işlemi: {eklenen} eklendi, {atlanan} atlandı")
             
             logger.info(f"{len(etfs)} ETF TradingView'dan başarıyla çekildi")
             return etfs
@@ -722,178 +772,120 @@ class ETFCollector:
                 except:
                     pass
             
-    def _process_etf_batch(self, driver, start_index, end_index):
-        """
-        Belirli bir indeks aralığındaki ETF satırlarını işler ve veritabanına kaydeder.
-        
-        Args:
-            driver: Selenium WebDriver
-            start_index: Başlangıç satır indeksi
-            end_index: Bitiş satır indeksi
+    def _extract_etf_info(self, row):
+        """Bir satırdan ETF bilgilerini çıkarır"""
+        try:
+            # Sembol hücresi
+            symbol_cell = row.find_elements(By.TAG_NAME, "td")[0]
+            symbol_element = symbol_cell.find_element(By.TAG_NAME, "a")
+            symbol = symbol_element.text.strip()
             
-        Returns:
-            tuple: (işlenen_toplam, eklenen, hatalı)
-        """
-        logger.info(f"{start_index}-{end_index} arası ETF satırları işleniyor...")
-        
-        işlenen_toplam = 0
-        eklenen = 0
-        hatalı = 0
-        
-        # Tüm satırları al
-        rows = driver.find_elements(By.XPATH, "//table[contains(@class, 'table-')]//tbody/tr")
-        
-        if start_index >= len(rows):
-            logger.warning(f"Başlangıç indeksi ({start_index}) toplam satır sayısını ({len(rows)}) aşıyor")
-            return 0, 0, 0
-        
-        # Veritabanına eklenecek ETF'leri hazırla
-        for i in range(start_index, min(end_index, len(rows))):
+            # Borsa bilgisi
+            exchange = "UNKNOWN"
             try:
-                # Mevcut satırı al
-                row = rows[i]
+                sup_element = symbol_cell.find_element(By.TAG_NAME, "sup")
+                exchange = sup_element.text.strip()
+            except NoSuchElementException:
+                pass
+            
+            # İsim
+            name = ""
+            try:
+                name_cell = row.find_elements(By.TAG_NAME, "td")[1]
+                name = name_cell.text.strip()
+            except (IndexError, NoSuchElementException):
+                name = symbol
+            
+            # Ülke bilgisi
+            country = "UNKNOWN"
+            try:
+                flag_element = symbol_cell.find_element(By.XPATH, ".//i[contains(@class, 'flag-')]")
+                flag_class = flag_element.get_attribute("class")
                 
-                # ETF verilerini çıkar
-                try:
-                    # Sembol
-                    symbol_cell = row.find_elements(By.TAG_NAME, "td")[0]
-                    symbol_element = symbol_cell.find_element(By.TAG_NAME, "a")
-                    symbol = symbol_element.text.strip()
-                    
-                    # Borsa
-                    exchange = "UNKNOWN"
-                    try:
-                        sup_element = symbol_cell.find_element(By.TAG_NAME, "sup")
-                        exchange = sup_element.text.strip()
-                    except NoSuchElementException:
-                        pass
-                    
-                    # İsim
-                    name = ""
-                    try:
-                        name_cell = row.find_elements(By.TAG_NAME, "td")[1]
-                        name = name_cell.text.strip()
-                    except (IndexError, NoSuchElementException):
-                        name = symbol
-                    
-                    # Ülke
-                    country = "UNKNOWN"
-                    try:
-                        flag_element = symbol_cell.find_element(By.XPATH, ".//i[contains(@class, 'flag-')]")
-                        flag_class = flag_element.get_attribute("class")
-                        
-                        for class_name in flag_class.split():
-                            if class_name.startswith("flag-") and not "flag-CyFdKRxR" in class_name:
-                                country = class_name.replace("flag-", "").upper()
-                                break
-                    except NoSuchElementException:
-                        pass
-                    
-                    # Fiyat ve para birimi (3. hücre)
-                    currency = "USD"  # Varsayılan para birimi
-                    price = "N/A"
-                    
-                    try:
-                        price_cell = row.find_elements(By.TAG_NAME, "td")[2]
-                        price_text = price_cell.text.strip()
-                        
-                        # Para birimi tespiti
-                        currency_symbols = {
-                            "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", 
-                            "₩": "KRW", "₺": "TRY", "₽": "RUB", "₹": "INR",
-                            "A$": "AUD", "C$": "CAD", "HK$": "HKD", "S$": "SGD",
-                            "CHF": "CHF", "SEK": "SEK", "NOK": "NOK", "DKK": "DKK",
-                            "PLN": "PLN", "CZK": "CZK", "HUF": "HUF", "MXN": "MXN",
-                            "BRL": "BRL", "ZAR": "ZAR", "CNY": "CNY", "CNH": "CNH"
-                        }
-                        
-                        currency_found = False
-                        for symbol_code, currency_code in currency_symbols.items():
-                            if symbol_code in price_text:
-                                currency = currency_code
-                                currency_found = True
-                                break
-                                
-                            # Parantez içindeki para birimi kodunu kontrol et
-                        if not currency_found and '(' in price_text and ')' in price_text:
-                            parts = price_text.split('(')
-                            if len(parts) > 1:
-                                possible_currency = parts[1].split(')')[0].strip()
-                                if possible_currency in currency_symbols.values():
-                                    currency = possible_currency
-                            
-                            price = price_text
-                    except (IndexError, NoSuchElementException):
-                        pass
-                    
-                    # ETF objesi oluştur
-                    etf = {
-                        'symbol': symbol,
-                        'name': name,
-                        'exchange': exchange,
-                        'price': price,
-                        'change_percent': change_percent,
-                        'country': country,
-                        'currency': currency
-                    }
-                    
-                    # Tüm ETF'lere ekle
-                    self.all_etfs.append(etf)
-                    
-                    # Borsa adını normalize et
-                    exchange = self.normalize_exchange_name(exchange, country)
-                    
-                    # Açıklama oluştur
-                    description = f"{name} - {exchange} ETF"
-                    
-                    # Veritabanı kaydı için ETF bilgisi
-                    etf_info = [{
-                        'parite': f"{symbol}/{currency}",
-                        'aktif': 1,
-                        'borsa': exchange,
-                        'tip': 'ETF',
-                        'ulke': country,
-                        'aciklama': description
-                    }]
-                    
-                    # Borsa adını kontrol et (veritabanı sütunu 20 karakter sınırı)
-                    if len(etf_info[0]['borsa']) > 20:
-                        etf_info[0]['borsa'] = etf_info[0]['borsa'][:20]
-                    
-                    # ETF'yi veritabanına ekle
-                    try:
-                        db_result = self.sync_pariteler_to_db(etf_info)
-                        
-                        if db_result[0] > 0:  # Başarıyla eklendi
-                            eklenen += db_result[0]
-                            self.added_etfs.append(etf)
-                        else:
-                            # Eklenemedi - muhtemelen veritabanında zaten var
-                            # Artık "hatalı" olarak işaretlenmeyecek, sadece atlanacak
-                            self.skipped_etfs.append(etf)
-                            self.skipped_reasons[f"{symbol}/{currency}"] = "Veritabanında zaten mevcut"
-                    except Exception as e:
-                        self.skipped_etfs.append(etf)
-                        self.skipped_reasons[f"{symbol}/{currency}"] = f"Veritabanı hatası: {str(e)}"
-                        logger.warning(f"ETF veritabanı hatası ({symbol}/{currency}): {str(e)}")
-                        hatalı += 1
-                    
-                    # İşlenen ETF sayacını artır
-                    işlenen_toplam += 1
-                    
-                except Exception as e:
-                    logger.warning(f"ETF veri çıkarma hatası (satır {i}): {str(e)}")
-                    hatalı += 1
-                    continue
+                for class_name in flag_class.split():
+                    if class_name.startswith("flag-") and not "flag-CyFdKRxR" in class_name:
+                        country = class_name.replace("flag-", "").upper()
+                        break
+            except NoSuchElementException:
+                pass
+            
+            # Fiyat ve para birimi
+            currency = "USD"  # Varsayılan para birimi
+            try:
+                price_cell = row.find_elements(By.TAG_NAME, "td")[2]
+                price_text = price_cell.text.strip()
                 
-            except Exception as e:
-                logger.warning(f"ETF satırı işleme hatası (satır {i}): {str(e)}")
-                hatalı += 1
-                continue
+                # Para birimi tespiti
+                currency_symbols = {
+                    "$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", 
+                    "₩": "KRW", "₺": "TRY", "₽": "RUB", "₹": "INR",
+                    "A$": "AUD", "C$": "CAD", "HK$": "HKD", "S$": "SGD",
+                    "CHF": "CHF", "SEK": "SEK", "NOK": "NOK", "DKK": "DKK",
+                    "PLN": "PLN", "CZK": "CZK", "HUF": "HUF", "MXN": "MXN",
+                    "BRL": "BRL", "ZAR": "ZAR", "CNY": "CNY", "CNH": "CNH"
+                }
                 
-        # Batch sonucu
-        logger.info(f"ETF batch işlemi: {işlenen_toplam} işlendi, {eklenen} eklendi, {işlenen_toplam - eklenen - hatalı} zaten mevcut, {hatalı} hatalı")
-        return işlenen_toplam, eklenen, hatalı
+                for symbol_code, currency_code in currency_symbols.items():
+                    if symbol_code in price_text:
+                        currency = currency_code
+                        break
+                
+                if '(' in price_text and ')' in price_text:
+                    parts = price_text.split('(')
+                    if len(parts) > 1:
+                        possible_currency = parts[1].split(')')[0].strip()
+                        if possible_currency in currency_symbols.values():
+                            currency = possible_currency
+            except (IndexError, NoSuchElementException):
+                pass
+            
+            # Borsa adını normalize et
+            exchange = self.normalize_exchange_name(exchange, country)
+            
+            # Açıklama oluştur
+            description = f"{name} - {exchange} ETF"
+            
+            # Veritabanı kaydı için ETF bilgisi
+            return {
+                'parite': f"{symbol}/{currency}",
+                'aktif': 1,
+                'borsa': exchange,
+                'tip': 'ETF',
+                'ulke': country,
+                'aciklama': description
+            }
+            
+        except Exception as e:
+            logger.error(f"ETF bilgisi çıkarma hatası: {str(e)}")
+            return None
+
+    def collect_pariteler(self):
+        """
+        TradingView'dan ETF'leri toplar ve veritabanına kaydeder
+        """
+        try:
+            print("\n" + "="*50)
+            print("TRADINGVIEW ETF COLLECTOR BAŞLATILIYOR...")
+            print("="*50 + "\n")
+            
+            etfs = self.fetch_tradingview_etfs()
+            total = len(etfs)
+            added = len(self.added_etfs)
+            failed = len(self.skipped_etfs)
+            
+            print("\n" + "="*50)
+            print(f"TRADINGVIEW ETF COLLECTOR TAMAMLANDI.")
+            print(f"Toplam: {total} | Eklenen: {added} | Hatalı: {failed}")
+            print("="*50 + "\n")
+            
+            return total, added, failed
+            
+        except KeyboardInterrupt:
+            print("\nKullanıcı tarafından durduruldu.")
+            raise
+        except Exception as e:
+            print(f"\nProgram hatası: {str(e)}")
+            return 0, 0, 0
 
 if __name__ == "__main__":
     try:
@@ -902,7 +894,7 @@ if __name__ == "__main__":
         print("="*50 + "\n")
         
         collector = ETFCollector()
-        total, added, failed = collector.run()
+        total, added, failed = collector.collect_pariteler()
         
         print("\n" + "="*50)
         print(f"TRADINGVIEW ETF COLLECTOR TAMAMLANDI.")
